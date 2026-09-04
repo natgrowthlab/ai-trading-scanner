@@ -1,0 +1,4 @@
+//@version=6
+indicator("AI Trading Scanner — Phase 1", overlay=true)
+// Phase 1 intentionally exposes only a neutral foundation. Signal logic is added after validation.
+plot(na, title="Signal placeholder")
