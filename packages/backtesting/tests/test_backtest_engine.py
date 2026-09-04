@@ -1,7 +1,7 @@
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import sys
 
 sys.path.append(str(Path(__file__).parents[1] / "src"))
 from backtest_engine import BacktestOrder, Direction, ExitReason, calculate_metrics, execute_order
