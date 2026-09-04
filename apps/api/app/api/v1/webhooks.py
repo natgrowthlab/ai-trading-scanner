@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.services.webhook_deduplication import webhook_deduplicator
 
 router = APIRouter(tags=["webhooks"])
 
@@ -31,4 +32,6 @@ def ingest_tradingview(
     supplied = x_webhook_signature or payload.secret
     if not expected or not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    if not webhook_deduplicator.accept(payload.symbol, payload.timeframe, payload.direction):
+        return {"status": "duplicate"}
     return {"status": "accepted"}

@@ -1,4 +1,43 @@
 //@version=6
-indicator("AI Trading Scanner — Phase 1", overlay=true)
-// Phase 1 intentionally exposes only a neutral foundation. Signal logic is added after validation.
-plot(na, title="Signal placeholder")
+indicator("AI Trading Scanner", overlay=true, max_boxes_count=50, max_labels_count=100)
+
+leftBars = input.int(3, "Swing left bars", minval=1)
+rightBars = input.int(3, "Swing right bars", minval=1)
+atrLength = input.int(14, "ATR length", minval=1)
+gapAtr = input.float(0.25, "Minimum FVG ATR ratio", minval=0)
+showFvg = input.bool(true, "Show fair value gaps")
+
+atr = ta.atr(atrLength)
+swingHigh = ta.pivothigh(high, leftBars, rightBars)
+swingLow = ta.pivotlow(low, leftBars, rightBars)
+var float lastHigh = na
+var float lastLow = na
+
+if not na(swingHigh)
+    lastHigh := swingHigh
+    label.new(bar_index - rightBars, swingHigh, "SH", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 25))
+if not na(swingLow)
+    lastLow := swingLow
+    label.new(bar_index - rightBars, swingLow, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 25))
+
+bullishBos = not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
+bearishBos = not na(lastLow) and close < lastLow and close[1] >= lastLow
+if bullishBos
+    label.new(bar_index, high, "BOS +", style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white)
+if bearishBos
+    label.new(bar_index, low, "BOS −", style=label.style_label_up, color=color.new(color.red, 0), textcolor=color.white)
+
+bullishFvg = low > high[2] and (low - high[2]) / atr >= gapAtr
+bearishFvg = high < low[2] and (low[2] - high) / atr >= gapAtr
+if showFvg and bullishFvg
+    box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(color.green, 45), bgcolor=color.new(color.green, 88))
+if showFvg and bearishFvg
+    box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(color.red, 45), bgcolor=color.new(color.red, 88))
+
+longSignal = bullishBos and close > ta.ema(close, 20)
+shortSignal = bearishBos and close < ta.ema(close, 20)
+plotshape(longSignal, title="Long", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
+plotshape(shortSignal, title="Short", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
+
+alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
