@@ -8,7 +8,7 @@
 - API de activos y velas, health/readiness.
 - Motor de swings, HH/HL/LH/LL, BOS/CHoCH y pruebas unitarias.
 
-## Phase 2 — en progreso
+## Phase 2 — completada
 
 - Liquidez: equal highs/lows y liquidity sweeps con tolerancia ATR.
 - FVG: gaps de tres velas, tamaño relativo a ATR y mitigación.
@@ -20,6 +20,13 @@
 ## Gate antes de Phase 2
 
 Validar con datos históricos y pruebas adicionales los swings y eventos de estructura para los tres activos. La Phase 2 no se inicia hasta que esa validación sea aceptada.
+
+## Phase 3 — en progreso
+
+- MTF alignment con macro, structure y execution bias.
+- Confluence scoring configurable, clasificación y elegibilidad.
+- Signal state machine, validación de plan y expiry.
+- Sizing por riesgo estructural y límites diarios.
 
 ## Siguientes fases
 
