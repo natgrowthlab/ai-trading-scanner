@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./scanner.db"
     redis_url: str = "redis://localhost:6379/0"
     cors_origins: list[str] = ["http://localhost:3000"]
+    tradingview_webhook_secret: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod
