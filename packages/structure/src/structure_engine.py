@@ -100,8 +100,18 @@ def analyze_market_structure(
         current = candles[index]
         window = candles[index - config.left_bars : index + config.right_bars + 1]
         candidates = (
-            (SwingType.HIGH, current.high, current.high == max(c.high for c in window) and sum(c.high == current.high for c in window) == 1),
-            (SwingType.LOW, current.low, current.low == min(c.low for c in window) and sum(c.low == current.low for c in window) == 1),
+            (
+                SwingType.HIGH,
+                current.high,
+                current.high == max(c.high for c in window)
+                and sum(c.high == current.high for c in window) == 1,
+            ),
+            (
+                SwingType.LOW,
+                current.low,
+                current.low == min(c.low for c in window)
+                and sum(c.low == current.low for c in window) == 1,
+            ),
         )
         atr = max(_atr(candles, index, config.atr_period), 1e-12)
         for swing_type, price, is_candidate in candidates:
@@ -117,7 +127,15 @@ def analyze_market_structure(
                 else:
                     label = StructureLabel.HL if price > previous.price else StructureLabel.LL
             strength = min(1.0, abs(price - (previous.price if previous else current.close)) / atr)
-            swing = Swing(swing_type, price, current.timestamp, strength, True, candles[index + config.right_bars].timestamp, label)
+            swing = Swing(
+                swing_type,
+                price,
+                current.timestamp,
+                strength,
+                True,
+                candles[index + config.right_bars].timestamp,
+                label,
+            )
             swings.append(swing)
             previous_by_type[swing_type] = swing
 
@@ -132,7 +150,13 @@ def _trend(swings: list[Swing]) -> Direction:
     recent = labels[-4:]
     bullish = sum(label in (StructureLabel.HH, StructureLabel.HL) for label in recent)
     bearish = sum(label in (StructureLabel.LH, StructureLabel.LL) for label in recent)
-    return Direction.BULLISH if bullish > bearish else Direction.BEARISH if bearish > bullish else Direction.NEUTRAL
+    return (
+        Direction.BULLISH
+        if bullish > bearish
+        else Direction.BEARISH
+        if bearish > bullish
+        else Direction.NEUTRAL
+    )
 
 
 def _detect_breaks(
@@ -145,7 +169,10 @@ def _detect_breaks(
     bias = Direction.NEUTRAL
     swing_index = 0
     for candle in candles:
-        while swing_index < len(swings) and swings[swing_index].confirmation_timestamp <= candle.timestamp:
+        while (
+            swing_index < len(swings)
+            and swings[swing_index].confirmation_timestamp <= candle.timestamp
+        ):
             swing = swings[swing_index]
             if swing.type == SwingType.HIGH:
                 last_high = swing
@@ -153,12 +180,16 @@ def _detect_breaks(
                 last_low = swing
             swing_index += 1
         if last_high and candle.close > last_high.price:
-            event = StructureEvent("BOS", Direction.BULLISH, last_high.price, candle.timestamp, last_high.strength)
+            event = StructureEvent(
+                "BOS", Direction.BULLISH, last_high.price, candle.timestamp, last_high.strength
+            )
             (choch if bias == Direction.BEARISH else bos).append(event)
             bias = Direction.BULLISH
             last_high = None
         elif last_low and candle.close < last_low.price:
-            event = StructureEvent("BOS", Direction.BEARISH, last_low.price, candle.timestamp, last_low.strength)
+            event = StructureEvent(
+                "BOS", Direction.BEARISH, last_low.price, candle.timestamp, last_low.strength
+            )
             (choch if bias == Direction.BULLISH else bos).append(event)
             bias = Direction.BEARISH
             last_low = None
