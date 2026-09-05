@@ -37,7 +37,32 @@ function isExpectedSecret(supplied: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-export function ingestTradingViewPayload(payload: TradingViewPayload): { status: "accepted" | "duplicate" } {
+async function notifyTelegram(signal: TradingViewSignal): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const text = [
+    "📈 AI Trading Scanner",
+    `${signal.direction === "LONG" ? "BUY" : "SELL"} ${signal.symbol}`,
+    `Timeframe: ${signal.timeframe}`,
+    `Price: ${signal.entry}`,
+    `Status: validated webhook received`,
+  ].join("\n");
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    // Telegram delivery must not cause a valid webhook ingestion to fail.
+  }
+}
+
+export async function ingestTradingViewPayload(payload: TradingViewPayload): Promise<{ status: "accepted" | "duplicate" }> {
   if (typeof payload.secret !== "string" || !isExpectedSecret(payload.secret)) throw new Error("unauthorized");
   if (payload.event !== "SIGNAL" || typeof payload.symbol !== "string" || !/^[A-Z0-9:_-]{3,32}$/i.test(payload.symbol)) throw new Error("invalid");
   if (payload.direction !== "LONG" && payload.direction !== "SHORT") throw new Error("invalid");
@@ -50,8 +75,10 @@ export function ingestTradingViewPayload(payload: TradingViewPayload): { status:
   const now = Date.now();
   if (now - (recentKeys.get(key) ?? 0) < 60_000) return { status: "duplicate" };
   recentKeys.set(key, now);
-  recentSignals.unshift({ id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0, entry: price.toString(), status: "received", timeframe, receivedAt: new Date(now).toISOString() });
+  const signal: TradingViewSignal = { id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0, entry: price.toString(), status: "received", timeframe, receivedAt: new Date(now).toISOString() };
+  recentSignals.unshift(signal);
   recentSignals.splice(100);
+  await notifyTelegram(signal);
   return { status: "accepted" };
 }
 
