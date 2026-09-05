@@ -28,3 +28,17 @@ def test_tradingview_webhook_rejects_invalid_secret(client):
         },
     )
     assert response.status_code == 401
+
+
+def test_tradingview_webhook_normalizes_native_interval(client):
+    from app.api.v1.webhooks import TradingViewWebhook
+
+    payload = TradingViewWebhook(
+        secret="test",
+        symbol="XAUUSD",
+        timeframe="60",
+        event="SIGNAL",
+        direction="LONG",
+        price="2000",
+    )
+    assert payload.timeframe == "1h"
