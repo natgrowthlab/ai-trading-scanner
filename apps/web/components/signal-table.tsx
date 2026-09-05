@@ -8,10 +8,22 @@ export function SignalTable() {
   const [signals, setSignals] = useState<Signal[] | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
-    fetch("/api/v1/signals")
+    let active = true;
+    const load = () => fetch("/api/v1/signals")
       .then((response) => response.ok ? response.json() : Promise.reject(response))
-      .then(setSignals)
-      .catch(() => setError(true));
+      .then((nextSignals) => {
+        if (!active) return;
+        setSignals(nextSignals);
+        setError(false);
+      })
+      .catch(() => active && setError(true));
+
+    void load();
+    const interval = window.setInterval(() => void load(), 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, []);
   if (error) return <p className="empty">Signal history is unavailable. Check the API connection.</p>;
   if (signals === null) return <p className="empty">Loading signal history…</p>;
