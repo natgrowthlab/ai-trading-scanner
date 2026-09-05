@@ -39,5 +39,12 @@ shortSignal = bearishBos and close < ta.ema(close, 20)
 plotshape(longSignal, title="Long", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
 
+// Direct alert() calls make these events available as a single TradingView alert
+// condition ("Any alert() function call") on private scripts.
+if longSignal
+    alert('{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}', alert.freq_once_per_bar_close)
+if shortSignal
+    alert('{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}', alert.freq_once_per_bar_close)
+
 alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
 alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
