@@ -6,6 +6,11 @@ export type TradingViewSignal = {
   direction: "LONG" | "SHORT";
   score: number;
   entry: string;
+  stopLoss: string;
+  tp1: string;
+  tp2: string;
+  tp3: string;
+  riskUsd: number;
   status: "received";
   timeframe: string;
   receivedAt: string;
@@ -18,6 +23,7 @@ type TradingViewPayload = {
   event?: unknown;
   direction?: unknown;
   price?: unknown;
+  stop_loss?: unknown;
 };
 
 const supportedTimeframes: Record<string, string> = {
@@ -45,9 +51,13 @@ async function notifyTelegram(signal: TradingViewSignal): Promise<void> {
   const text = [
     "📈 AI Trading Scanner",
     `${signal.direction === "LONG" ? "BUY" : "SELL"} ${signal.symbol}`,
+    `Entry: ${signal.entry}`,
+    `SL: ${signal.stopLoss}`,
+    `TP1: ${signal.tp1}`,
+    `TP2: ${signal.tp2}`,
+    `TP3: ${signal.tp3}`,
+    `Risk: $${signal.riskUsd.toFixed(2)} (1% of $10,000)`,
     `Timeframe: ${signal.timeframe}`,
-    `Price: ${signal.entry}`,
-    `Status: validated webhook received`,
   ].join("\n");
 
   try {
@@ -70,12 +80,28 @@ export async function ingestTradingViewPayload(payload: TradingViewPayload): Pro
   const price = Number(payload.price);
   if (!Number.isFinite(price) || price <= 0) throw new Error("invalid");
 
+  const proposedStop = Number(payload.stop_loss);
+  const fallbackStop = payload.direction === "LONG" ? price * 0.99 : price * 1.01;
+  const stop = Number.isFinite(proposedStop) && proposedStop > 0 && (
+    (payload.direction === "LONG" && proposedStop < price) ||
+    (payload.direction === "SHORT" && proposedStop > price)
+  ) ? proposedStop : fallbackStop;
+  const riskDistance = Math.abs(price - stop);
+  const target = (multiple: number) => payload.direction === "LONG"
+    ? price + riskDistance * multiple
+    : price - riskDistance * multiple;
+  const format = (value: number) => value.toFixed(2);
+
   const timeframe = supportedTimeframes[payload.timeframe];
   const key = `${payload.symbol}|${timeframe}|${payload.direction}`;
   const now = Date.now();
   if (now - (recentKeys.get(key) ?? 0) < 60_000) return { status: "duplicate" };
   recentKeys.set(key, now);
-  const signal: TradingViewSignal = { id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0, entry: price.toString(), status: "received", timeframe, receivedAt: new Date(now).toISOString() };
+  const signal: TradingViewSignal = {
+    id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0,
+    entry: format(price), stopLoss: format(stop), tp1: format(target(1)), tp2: format(target(2)), tp3: format(target(3)), riskUsd: 100,
+    status: "received", timeframe, receivedAt: new Date(now).toISOString(),
+  };
   recentSignals.unshift(signal);
   recentSignals.splice(100);
   await notifyTelegram(signal);

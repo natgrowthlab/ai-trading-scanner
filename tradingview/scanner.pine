@@ -36,8 +36,10 @@ if showFvg and bearishFvg
 
 longSignal = bullishBos and close > ta.ema(close, 20)
 shortSignal = bearishBos and close < ta.ema(close, 20)
+stopPrice = longSignal ? lastLow : shortSignal ? lastHigh : na
 plotshape(longSignal, title="Long", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
+plot(stopPrice, "Stop Loss", display=display.none)
 
-alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
-alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}"}')
+alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
+alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
