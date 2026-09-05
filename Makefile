@@ -7,10 +7,10 @@ dev:
 	docker compose up --build
 
 test:
-	cd apps/api && python3 -m pytest tests ../../packages/structure/tests ../../packages/fvg/tests ../../packages/liquidity/tests ../../packages/volume/tests ../../packages/momentum/tests ../../packages/orderblocks/tests ../../packages/mtf/tests ../../packages/scoring/tests ../../packages/signals/tests ../../packages/risk/tests ../../packages/backtesting/tests ../../packages/alerts/tests ../../packages/ai/tests ../../packages/optimizer/tests
+	cd apps/api && python3 -m pytest tests ../../packages/structure/tests ../../packages/fvg/tests ../../packages/liquidity/tests ../../packages/volume/tests ../../packages/momentum/tests ../../packages/orderblocks/tests ../../packages/mtf/tests ../../packages/scoring/tests ../../packages/signals/tests ../../packages/risk/tests ../../packages/backtesting/tests ../../packages/alerts/tests ../../packages/ai/tests ../../packages/optimizer/tests ../../packages/paper/tests
 
 lint:
-	cd apps/api && python3 -m ruff check app tests ../../packages/structure/src ../../packages/fvg/src ../../packages/liquidity/src ../../packages/volume/src ../../packages/momentum/src ../../packages/orderblocks/src ../../packages/mtf/src ../../packages/scoring/src ../../packages/signals/src ../../packages/risk/src ../../packages/backtesting/src ../../packages/alerts/src ../../packages/ai/src ../../packages/optimizer/src
+	cd apps/api && python3 -m ruff check app tests ../../packages/structure/src ../../packages/fvg/src ../../packages/liquidity/src ../../packages/volume/src ../../packages/momentum/src ../../packages/orderblocks/src ../../packages/mtf/src ../../packages/scoring/src ../../packages/signals/src ../../packages/risk/src ../../packages/backtesting/src ../../packages/alerts/src ../../packages/ai/src ../../packages/optimizer/src ../../packages/paper/src
 
 migrate:
 	docker compose run --rm api alembic upgrade head
