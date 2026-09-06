@@ -34,6 +34,7 @@ const supportedTimeframes: Record<string, string> = {
 const recentSignals: TradingViewSignal[] = [];
 const recentKeys = new Map<string, number>();
 let nextId = 1;
+const DEDUPLICATION_WINDOW_MS = 60_000;
 
 function isExpectedSecret(supplied: string): boolean {
   const expected = process.env.TRADINGVIEW_WEBHOOK_SECRET;
@@ -78,7 +79,7 @@ export async function ingestTradingViewPayload(payload: TradingViewPayload): Pro
   if (payload.direction !== "LONG" && payload.direction !== "SHORT") throw new Error("invalid");
   if (typeof payload.timeframe !== "string" || !supportedTimeframes[payload.timeframe]) throw new Error("invalid");
   const price = Number(payload.price);
-  if (!Number.isFinite(price) || price <= 0) throw new Error("invalid");
+  if (!Number.isFinite(price) || price <= 0 || price > 10_000_000) throw new Error("invalid");
 
   const proposedStop = Number(payload.stop_loss);
   const fallbackStop = payload.direction === "LONG" ? price * 0.99 : price * 1.01;
@@ -95,7 +96,8 @@ export async function ingestTradingViewPayload(payload: TradingViewPayload): Pro
   const timeframe = supportedTimeframes[payload.timeframe];
   const key = `${payload.symbol}|${timeframe}|${payload.direction}`;
   const now = Date.now();
-  if (now - (recentKeys.get(key) ?? 0) < 60_000) return { status: "duplicate" };
+  for (const [recentKey, receivedAt] of recentKeys) if (now - receivedAt >= DEDUPLICATION_WINDOW_MS) recentKeys.delete(recentKey);
+  if (now - (recentKeys.get(key) ?? 0) < DEDUPLICATION_WINDOW_MS) return { status: "duplicate" };
   recentKeys.set(key, now);
   const signal: TradingViewSignal = {
     id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0,
