@@ -11,6 +11,11 @@ def seed_assets() -> None:
         ("XAUUSD", "Gold / US Dollar", AssetClass.METAL),
         ("NAS100", "Nasdaq 100", AssetClass.INDEX),
         ("BTCUSDT", "Bitcoin / Tether", AssetClass.CRYPTO),
+        ("NQ", "Nasdaq-100 E-mini Futures", AssetClass.INDEX),
+        ("ES", "S&P 500 E-mini Futures", AssetClass.INDEX),
+        ("YM", "Dow E-mini Futures", AssetClass.INDEX),
+        ("RTY", "Russell 2000 E-mini Futures", AssetClass.INDEX),
+        ("GC", "Gold Futures", AssetClass.METAL),
     ]
     with SessionLocal() as db:
         for symbol, display_name, asset_class in assets:
