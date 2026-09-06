@@ -16,6 +16,7 @@ obMinRelativeVolume = input.float(1.25, "Minimum BOS relative volume", minval=0.
 obMinOriginBodyAtr = input.float(0.35, "Minimum origin candle body (ATR)", minval=0.05, step=0.05, group="High-confidence order blocks")
 obMinOriginRelativeVolume = input.float(1.00, "Minimum origin candle relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
 obMinScore = input.int(4, "Minimum OB confidence checks", minval=2, maxval=4, group="High-confidence order blocks")
+requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for LONG/SHORT", group="High-confidence order blocks")
 showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
 sessionTimezone = input.string("Etc/UTC", "Session timezone")
@@ -101,6 +102,7 @@ if showFvg and bearishFvg
 var box[] orderBlocks = array.new_box()
 createOrderBlock(isBullish) =>
     int offset = na
+    bool created = false
     for i = 1 to orderBlockLookback
         oppositeCandle = isBullish ? close[i] < open[i] : close[i] > open[i]
         if na(offset) and oppositeCandle
@@ -119,24 +121,25 @@ createOrderBlock(isBullish) =>
         if originRelativeVolume >= obMinOriginRelativeVolume
             confidenceChecks += 1
         if confidenceChecks >= obMinScore
-            top = math.max(open[offset], close[offset])
-            bottom = math.min(open[offset], close[offset])
-            blockColor = isBullish ? color.green : color.red
-            blockText = "BULLISH OB"
-            if not isBullish
-                blockText := "BEARISH OB"
-            newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
-            array.push(orderBlocks, newBlock)
-            if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
-                box.delete(array.shift(orderBlocks))
+            created := true
+            if showOrderBlocks
+                top = math.max(open[offset], close[offset])
+                bottom = math.min(open[offset], close[offset])
+                blockColor = isBullish ? color.green : color.red
+                blockText = "BULLISH OB"
+                if not isBullish
+                    blockText := "BEARISH OB"
+                newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
+                array.push(orderBlocks, newBlock)
+                if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
+                    box.delete(array.shift(orderBlocks))
+    created
 
-if showOrderBlocks and bullishBos
-    createOrderBlock(true)
-if showOrderBlocks and bearishBos
-    createOrderBlock(false)
+highConfidenceBullishOb = bullishBos ? createOrderBlock(true) : false
+highConfidenceBearishOb = bearishBos ? createOrderBlock(false) : false
 
-longSignal = bullishBos and close > ta.ema(close, 20)
-shortSignal = bearishBos and close < ta.ema(close, 20)
+longSignal = bullishBos and close > ta.ema(close, 20) and (not requireHighConfidenceObForSignals or highConfidenceBullishOb)
+shortSignal = bearishBos and close < ta.ema(close, 20) and (not requireHighConfidenceObForSignals or highConfidenceBearishOb)
 stopPrice = longSignal ? lastLow : shortSignal ? lastHigh : na
 plotshape(longSignal, title="Long", text="LONG", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
