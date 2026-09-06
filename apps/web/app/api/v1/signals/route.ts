@@ -3,6 +3,7 @@ import { listTradingViewSignals } from "../../../../lib/tradingview-signals";
 
 export const runtime = "nodejs";
 
-export function GET() {
-  return NextResponse.json(listTradingViewSignals());
+export async function GET() {
+  try { return NextResponse.json(await listTradingViewSignals()); }
+  catch { return NextResponse.json({ detail: "Signal storage unavailable" }, { status: 503 }); }
 }

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { listStoredSignals, persistSignal } from "./signal-store";
 
 export type TradingViewSignal = {
   id: number;
@@ -31,7 +32,6 @@ const supportedTimeframes: Record<string, string> = {
   "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "1D": "1D",
 };
 
-const recentSignals: TradingViewSignal[] = [];
 const recentKeys = new Map<string, number>();
 let nextId = 1;
 const DEDUPLICATION_WINDOW_MS = 60_000;
@@ -104,12 +104,11 @@ export async function ingestTradingViewPayload(payload: TradingViewPayload): Pro
     entry: format(price), stopLoss: format(stop), tp1: format(target(1)), tp2: format(target(2)), tp3: format(target(3)), riskUsd: 100,
     status: "received", timeframe, receivedAt: new Date(now).toISOString(),
   };
-  recentSignals.unshift(signal);
-  recentSignals.splice(100);
-  await notifyTelegram(signal);
+  const storedSignal = await persistSignal(signal);
+  await notifyTelegram(storedSignal);
   return { status: "accepted" };
 }
 
-export function listTradingViewSignals(): TradingViewSignal[] {
-  return recentSignals;
+export async function listTradingViewSignals(): Promise<TradingViewSignal[]> {
+  return listStoredSignals();
 }

@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
     const result = await ingestTradingViewPayload(payload as Record<string, unknown>);
     return NextResponse.json(result, { status: 202 });
   } catch (error) {
-    return NextResponse.json({ detail: error instanceof Error && error.message === "unauthorized" ? "Invalid webhook signature" : "Invalid webhook payload" }, { status: error instanceof Error && error.message === "unauthorized" ? 401 : 422 });
+    const detail = error instanceof Error && error.message === "unauthorized" ? "Invalid webhook signature" : error instanceof Error && error.message === "storage" ? "Signal storage unavailable" : "Invalid webhook payload";
+    return NextResponse.json({ detail }, { status: error instanceof Error && error.message === "unauthorized" ? 401 : error instanceof Error && error.message === "storage" ? 503 : 422 });
   }
 }
