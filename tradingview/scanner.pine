@@ -228,6 +228,11 @@ shortEntryPattern = requireObRetest ? bearishObRetest : highConfidenceBearishOb
 longScore = (activeBullishObValid ? 1 : 0) + (bullishObRetest ? 1 : 0) + (close > ema20 ? 1 : 0) + (higherTimeframeBullish ? 1 : 0) + (activeBullishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
 shortScore = (activeBearishObValid ? 1 : 0) + (bearishObRetest ? 1 : 0) + (close < ema20 ? 1 : 0) + (higherTimeframeBearish ? 1 : 0) + (activeBearishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
 var int lastSignalBar = na
+var line entryPlanLine = na
+var line stopPlanLine = na
+var line tp1PlanLine = na
+var line tp2PlanLine = na
+var line tp3PlanLine = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= signalCooldownBars
 
 longSignal = barstate.isconfirmed and longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid)
@@ -241,14 +246,19 @@ if longSignal or shortSignal
     if showTradePlan
         entryPrice = close
         riskDistance = math.abs(entryPrice - stopPrice)
-        line.new(bar_index, entryPrice, bar_index + 1, entryPrice, extend=extend.right, color=color.white, style=line.style_dotted)
-        line.new(bar_index, stopPrice, bar_index + 1, stopPrice, extend=extend.right, color=color.red, style=line.style_dashed)
+        line.delete(entryPlanLine)
+        line.delete(stopPlanLine)
+        line.delete(tp1PlanLine)
+        line.delete(tp2PlanLine)
+        line.delete(tp3PlanLine)
+        entryPlanLine := line.new(bar_index, entryPrice, bar_index + 1, entryPrice, extend=extend.right, color=color.white, style=line.style_dotted)
+        stopPlanLine := line.new(bar_index, stopPrice, bar_index + 1, stopPrice, extend=extend.right, color=color.red, style=line.style_dashed)
         tp1 = longSignal ? entryPrice + riskDistance : entryPrice - riskDistance
         tp2 = longSignal ? entryPrice + riskDistance * 2 : entryPrice - riskDistance * 2
         tp3 = longSignal ? entryPrice + riskDistance * 3 : entryPrice - riskDistance * 3
-        line.new(bar_index, tp1, bar_index + 1, tp1, extend=extend.right, color=color.new(color.green, 10), style=line.style_dotted)
-        line.new(bar_index, tp2, bar_index + 1, tp2, extend=extend.right, color=color.new(color.green, 25), style=line.style_dotted)
-        line.new(bar_index, tp3, bar_index + 1, tp3, extend=extend.right, color=color.new(color.green, 40), style=line.style_dotted)
+        tp1PlanLine := line.new(bar_index, tp1, bar_index + 1, tp1, extend=extend.right, color=color.new(color.green, 10), style=line.style_dotted)
+        tp2PlanLine := line.new(bar_index, tp2, bar_index + 1, tp2, extend=extend.right, color=color.new(color.green, 25), style=line.style_dotted)
+        tp3PlanLine := line.new(bar_index, tp3, bar_index + 1, tp3, extend=extend.right, color=color.new(color.green, 40), style=line.style_dotted)
 plotshape(longSignal, title="Long", text="LONG", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
 plot(stopPrice, "Stop Loss", display=display.none)
