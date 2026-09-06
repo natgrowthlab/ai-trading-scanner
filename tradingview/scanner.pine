@@ -1,38 +1,112 @@
 //@version=6
-indicator("AI Trading Scanner", overlay=true, max_boxes_count=50, max_labels_count=100)
+indicator("AI Trading Scanner", overlay=true, max_boxes_count=50, max_labels_count=200, max_lines_count=200)
 
+// Tuned for the requested execution timeframes.
+restrictTimeframes = input.bool(true, "Only run on 1m, 5m, 1h and 1D")
 leftBars = input.int(3, "Swing left bars", minval=1)
 rightBars = input.int(3, "Swing right bars", minval=1)
 atrLength = input.int(14, "ATR length", minval=1)
 gapAtr = input.float(0.25, "Minimum FVG ATR ratio", minval=0)
 showFvg = input.bool(true, "Show fair value gaps")
+showOrderBlocks = input.bool(true, "Show order blocks")
+orderBlockLookback = input.int(20, "Order block candle search", minval=2, maxval=100)
+showSessionLevels = input.bool(true, "Show session high / low")
+sessionInput = input.session("0000-2359", "Session")
+sessionTimezone = input.string("Etc/UTC", "Session timezone")
+showTrendStructure = input.bool(true, "Show trendlines, ceilings and floors")
 
+supportedTimeframe = (timeframe.isminutes and (timeframe.multiplier == 1 or timeframe.multiplier == 5 or timeframe.multiplier == 60)) or timeframe.isdaily
+active = not restrictTimeframes or supportedTimeframe
 atr = ta.atr(atrLength)
-swingHigh = ta.pivothigh(high, leftBars, rightBars)
-swingLow = ta.pivotlow(low, leftBars, rightBars)
+
+// Reset the high and low at each configured session start, and extend the levels right.
+inSession = not na(time(timeframe.period, sessionInput, sessionTimezone))
+sessionStarted = inSession and (na(inSession[1]) or not inSession[1])
+var float sessionHigh = na
+var float sessionLow = na
+var line sessionHighLine = na
+var line sessionLowLine = na
+if active and showSessionLevels and (sessionStarted or na(sessionHighLine))
+    sessionHigh := high
+    sessionLow := low
+    line.delete(sessionHighLine)
+    line.delete(sessionLowLine)
+    sessionHighLine := line.new(bar_index, sessionHigh, bar_index + 1, sessionHigh, extend=extend.right, color=color.aqua, style=line.style_dashed)
+    sessionLowLine := line.new(bar_index, sessionLow, bar_index + 1, sessionLow, extend=extend.right, color=color.aqua, style=line.style_dashed)
+else if active and showSessionLevels and inSession
+    sessionHigh := math.max(nz(sessionHigh, high), high)
+    sessionLow := math.min(nz(sessionLow, low), low)
+    line.set_y1(sessionHighLine, sessionHigh)
+    line.set_y2(sessionHighLine, sessionHigh)
+    line.set_y1(sessionLowLine, sessionLow)
+    line.set_y2(sessionLowLine, sessionLow)
+
+// Confirmed pivots build trendlines plus the active ceiling and floor.
+swingHigh = active ? ta.pivothigh(high, leftBars, rightBars) : na
+swingLow = active ? ta.pivotlow(low, leftBars, rightBars) : na
 var float lastHigh = na
 var float lastLow = na
+var int lastHighBar = na
+var int lastLowBar = na
+var line ceilingLine = na
+var line floorLine = na
 
 if not na(swingHigh)
+    pivotBar = bar_index - rightBars
+    if showTrendStructure and not na(lastHigh)
+        line.new(lastHighBar, lastHigh, pivotBar, swingHigh, color=color.new(color.red, 20), width=2)
+    line.delete(ceilingLine)
+    ceilingLine := line.new(pivotBar, swingHigh, bar_index, swingHigh, extend=extend.right, color=color.new(color.red, 35), style=line.style_dotted, width=2)
+    label.new(pivotBar, swingHigh, "CEILING\nSH", style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.tiny)
     lastHigh := swingHigh
-    label.new(bar_index - rightBars, swingHigh, "SH", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 25))
+    lastHighBar := pivotBar
+
 if not na(swingLow)
+    pivotBar = bar_index - rightBars
+    if showTrendStructure and not na(lastLow)
+        line.new(lastLowBar, lastLow, pivotBar, swingLow, color=color.new(color.lime, 20), width=2)
+    line.delete(floorLine)
+    floorLine := line.new(pivotBar, swingLow, bar_index, swingLow, extend=extend.right, color=color.new(color.lime, 35), style=line.style_dotted, width=2)
+    label.new(pivotBar, swingLow, "FLOOR\nSL", style=label.style_label_up, color=color.new(color.lime, 15), textcolor=color.white, size=size.tiny)
     lastLow := swingLow
-    label.new(bar_index - rightBars, swingLow, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 25))
+    lastLowBar := pivotBar
 
-bullishBos = not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
-bearishBos = not na(lastLow) and close < lastLow and close[1] >= lastLow
+bullishBos = active and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
+bearishBos = active and not na(lastLow) and close < lastLow and close[1] >= lastLow
 if bullishBos
-    label.new(bar_index, high, "BOS +", style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white)
+    label.new(bar_index, high, "BOS +", style=label.style_label_down, color=color.green, textcolor=color.white, size=size.tiny)
 if bearishBos
-    label.new(bar_index, low, "BOS −", style=label.style_label_up, color=color.new(color.red, 0), textcolor=color.white)
+    label.new(bar_index, low, "BOS −", style=label.style_label_up, color=color.red, textcolor=color.white, size=size.tiny)
 
-bullishFvg = low > high[2] and (low - high[2]) / atr >= gapAtr
-bearishFvg = high < low[2] and (low[2] - high) / atr >= gapAtr
+// Fair value gaps.
+bullishFvg = active and low > high[2] and (low - high[2]) / atr >= gapAtr
+bearishFvg = active and high < low[2] and (low[2] - high) / atr >= gapAtr
 if showFvg and bullishFvg
-    box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(color.green, 45), bgcolor=color.new(color.green, 88))
+    box.new(bar_index - 2, low, bar_index, high[2], extend=extend.right, border_color=color.new(color.green, 45), bgcolor=color.new(color.green, 88))
 if showFvg and bearishFvg
-    box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(color.red, 45), bgcolor=color.new(color.red, 88))
+    box.new(bar_index - 2, low[2], bar_index, high, extend=extend.right, border_color=color.new(color.red, 45), bgcolor=color.new(color.red, 88))
+
+// The last opposite-colour candle before BOS defines the order block.
+var box[] orderBlocks = array.new_box()
+createOrderBlock(isBullish) =>
+    int offset = na
+    for i = 1 to orderBlockLookback
+        oppositeCandle = isBullish ? close[i] < open[i] : close[i] > open[i]
+        if na(offset) and oppositeCandle
+            offset := i
+    if not na(offset)
+        top = math.max(open[offset], close[offset])
+        bottom = math.min(open[offset], close[offset])
+        blockColor = isBullish ? color.green : color.red
+        newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 20), bgcolor=color.new(blockColor, 85), text=isBullish ? "BULLISH OB" : "BEARISH OB", text_color=color.white, text_size=size.tiny)
+        array.push(orderBlocks, newBlock)
+        if array.size(orderBlocks) > 20
+            box.delete(array.shift(orderBlocks))
+
+if showOrderBlocks and bullishBos
+    createOrderBlock(true)
+if showOrderBlocks and bearishBos
+    createOrderBlock(false)
 
 longSignal = bullishBos and close > ta.ema(close, 20)
 shortSignal = bearishBos and close < ta.ema(close, 20)
