@@ -10,6 +10,12 @@ gapAtr = input.float(0.25, "Minimum FVG ATR ratio", minval=0)
 showFvg = input.bool(true, "Show fair value gaps")
 showOrderBlocks = input.bool(true, "Show order blocks")
 orderBlockLookback = input.int(20, "Order block candle search", minval=2, maxval=100)
+maxHighConfidenceOrderBlocks = input.int(6, "Maximum high-confidence OBs", minval=1, maxval=20, group="High-confidence order blocks")
+obMinDisplacementAtr = input.float(1.20, "Minimum BOS displacement (ATR)", minval=0.25, step=0.05, group="High-confidence order blocks")
+obMinRelativeVolume = input.float(1.25, "Minimum BOS relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
+obMinOriginBodyAtr = input.float(0.35, "Minimum origin candle body (ATR)", minval=0.05, step=0.05, group="High-confidence order blocks")
+obMinOriginRelativeVolume = input.float(1.00, "Minimum origin candle relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
+obMinScore = input.int(4, "Minimum OB confidence checks", minval=2, maxval=4, group="High-confidence order blocks")
 showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
 sessionTimezone = input.string("Etc/UTC", "Session timezone")
@@ -74,6 +80,9 @@ if not na(swingLow)
 
 bullishBos = active and not na(lastHigh) and close > lastHigh and close[1] <= lastHigh
 bearishBos = active and not na(lastLow) and close < lastLow and close[1] >= lastLow
+volumeAverage = ta.sma(volume, 20)
+relativeVolume = not na(volumeAverage) and volumeAverage > 0 ? volume / volumeAverage : 0.0
+bosDisplacementAtr = atr > 0 ? math.abs(close - open) / atr : 0.0
 if bullishBos
     label.new(bar_index, high, "BOS +", style=label.style_label_down, color=color.green, textcolor=color.white, size=size.tiny)
 if bearishBos
@@ -87,7 +96,8 @@ if showFvg and bullishFvg
 if showFvg and bearishFvg
     box.new(bar_index - 2, low[2], bar_index, high, extend=extend.right, border_color=color.new(color.red, 45), bgcolor=color.new(color.red, 88))
 
-// The last opposite-colour candle before BOS defines the order block.
+// Only retain an OB when a confirmed BOS is accompanied by displacement and volume.
+// The origin candle is also scored, so ordinary opposite candles do not create zones.
 var box[] orderBlocks = array.new_box()
 createOrderBlock(isBullish) =>
     int offset = na
@@ -96,13 +106,23 @@ createOrderBlock(isBullish) =>
         if na(offset) and oppositeCandle
             offset := i
     if not na(offset)
-        top = math.max(open[offset], close[offset])
-        bottom = math.min(open[offset], close[offset])
-        blockColor = isBullish ? color.green : color.red
-        newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 20), bgcolor=color.new(blockColor, 85), text=isBullish ? "BULLISH OB" : "BEARISH OB", text_color=color.white, text_size=size.tiny)
-        array.push(orderBlocks, newBlock)
-        if array.size(orderBlocks) > 20
-            box.delete(array.shift(orderBlocks))
+        originBodyAtr = not na(atr[offset]) and atr[offset] > 0 ? math.abs(close[offset] - open[offset]) / atr[offset] : 0.0
+        originVolumeAverage = volumeAverage[offset]
+        originRelativeVolume = not na(originVolumeAverage) and originVolumeAverage > 0 ? volume[offset] / originVolumeAverage : 0.0
+        confidenceChecks = 0
+        confidenceChecks += bosDisplacementAtr >= obMinDisplacementAtr ? 1 : 0
+        confidenceChecks += relativeVolume >= obMinRelativeVolume ? 1 : 0
+        confidenceChecks += originBodyAtr >= obMinOriginBodyAtr ? 1 : 0
+        confidenceChecks += originRelativeVolume >= obMinOriginRelativeVolume ? 1 : 0
+        if confidenceChecks >= obMinScore
+            top = math.max(open[offset], close[offset])
+            bottom = math.min(open[offset], close[offset])
+            blockColor = isBullish ? color.green : color.red
+            blockText = (isBullish ? "BULLISH" : "BEARISH") + " OB " + str.tostring(confidenceChecks) + "/4"
+            newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
+            array.push(orderBlocks, newBlock)
+            if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
+                box.delete(array.shift(orderBlocks))
 
 if showOrderBlocks and bullishBos
     createOrderBlock(true)
