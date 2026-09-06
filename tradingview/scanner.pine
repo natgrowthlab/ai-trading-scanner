@@ -14,6 +14,7 @@ showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
 sessionTimezone = input.string("Etc/UTC", "Session timezone")
 showTrendStructure = input.bool(true, "Show trendlines, ceilings and floors")
+webhookSecret = input.string("", "Webhook secret", group="Automation", tooltip="Use the same secret configured in the scanner Web App. This value is only included in alert() webhook messages.")
 
 supportedTimeframe = (timeframe.isminutes and (timeframe.multiplier == 1 or timeframe.multiplier == 5 or timeframe.multiplier == 60)) or timeframe.isdaily
 active = not restrictTimeframes or supportedTimeframe
@@ -117,3 +118,12 @@ plot(stopPrice, "Stop Loss", display=display.none)
 
 alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
 alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
+
+// Dynamic alert() messages include the configured secret and live calculated stop.
+// Create one TradingView alert using "Any alert() function call" after saving the script.
+if barstate.isconfirmed and webhookSecret != "" and longSignal
+    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+    alert(longMessage, alert.freq_once_per_bar_close)
+if barstate.isconfirmed and webhookSecret != "" and shortSignal
+    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+    alert(shortMessage, alert.freq_once_per_bar_close)

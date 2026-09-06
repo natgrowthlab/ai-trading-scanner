@@ -75,7 +75,7 @@ async function notifyTelegram(signal: TradingViewSignal): Promise<void> {
 
 export async function ingestTradingViewPayload(payload: TradingViewPayload): Promise<{ status: "accepted" | "duplicate" }> {
   if (typeof payload.secret !== "string" || !isExpectedSecret(payload.secret)) throw new Error("unauthorized");
-  if (payload.event !== "SIGNAL" || typeof payload.symbol !== "string" || !/^[A-Z0-9:_-]{3,32}$/i.test(payload.symbol)) throw new Error("invalid");
+  if (payload.event !== "SIGNAL" || typeof payload.symbol !== "string" || !/^[A-Z0-9:!_-]{3,32}$/i.test(payload.symbol)) throw new Error("invalid");
   if (payload.direction !== "LONG" && payload.direction !== "SHORT") throw new Error("invalid");
   if (typeof payload.timeframe !== "string" || !supportedTimeframes[payload.timeframe]) throw new Error("invalid");
   const price = Number(payload.price);
