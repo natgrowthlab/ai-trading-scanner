@@ -109,16 +109,22 @@ createOrderBlock(isBullish) =>
         originBodyAtr = not na(atr[offset]) and atr[offset] > 0 ? math.abs(close[offset] - open[offset]) / atr[offset] : 0.0
         originVolumeAverage = volumeAverage[offset]
         originRelativeVolume = not na(originVolumeAverage) and originVolumeAverage > 0 ? volume[offset] / originVolumeAverage : 0.0
-        confidenceChecks = 0
-        confidenceChecks += bosDisplacementAtr >= obMinDisplacementAtr ? 1 : 0
-        confidenceChecks += relativeVolume >= obMinRelativeVolume ? 1 : 0
-        confidenceChecks += originBodyAtr >= obMinOriginBodyAtr ? 1 : 0
-        confidenceChecks += originRelativeVolume >= obMinOriginRelativeVolume ? 1 : 0
+        int confidenceChecks = 0
+        if bosDisplacementAtr >= obMinDisplacementAtr
+            confidenceChecks += 1
+        if relativeVolume >= obMinRelativeVolume
+            confidenceChecks += 1
+        if originBodyAtr >= obMinOriginBodyAtr
+            confidenceChecks += 1
+        if originRelativeVolume >= obMinOriginRelativeVolume
+            confidenceChecks += 1
         if confidenceChecks >= obMinScore
             top = math.max(open[offset], close[offset])
             bottom = math.min(open[offset], close[offset])
             blockColor = isBullish ? color.green : color.red
-            blockText = (isBullish ? "BULLISH" : "BEARISH") + " OB " + str.tostring(confidenceChecks) + "/4"
+            blockText = "BULLISH OB"
+            if not isBullish
+                blockText := "BEARISH OB"
             newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
             array.push(orderBlocks, newBlock)
             if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
