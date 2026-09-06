@@ -16,15 +16,16 @@ obMinRelativeVolume = input.float(1.25, "Minimum BOS relative volume", minval=0.
 obMinOriginBodyAtr = input.float(0.35, "Minimum origin candle body (ATR)", minval=0.05, step=0.05, group="High-confidence order blocks")
 obMinOriginRelativeVolume = input.float(1.00, "Minimum origin candle relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
 obMinScore = input.int(4, "Minimum OB confidence checks", minval=2, maxval=4, group="High-confidence order blocks")
-requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for LONG/SHORT", group="High-confidence order blocks")
+requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for advanced mode", group="High-confidence order blocks")
 retestWindowBars = input.int(24, "OB retest window (bars)", minval=1, maxval=200, group="Signal confirmation")
-requireObRetest = input.bool(true, "Require OB retest for LONG/SHORT", group="Signal confirmation")
+useAdvancedSignalConfirmation = input.bool(false, "Use advanced confirmation for LONG/SHORT", group="Signal confirmation")
+requireObRetest = input.bool(true, "Require OB retest in advanced mode", group="Signal confirmation")
 higherTimeframe = input.timeframe("60", "Higher timeframe bias", group="Signal confirmation")
-filterSignalSessions = input.bool(true, "Limit intraday signals to London / New York", group="Signal confirmation")
+filterSignalSessions = input.bool(false, "Limit intraday signals to London / New York", group="Signal confirmation")
 londonSession = input.session("0800-1200", "London session", group="Signal confirmation")
 newYorkSession = input.session("0830-1200", "New York session", group="Signal confirmation")
-minimumSignalScore = input.int(5, "Minimum signal score (out of 6)", minval=3, maxval=6, group="Signal confirmation")
-signalCooldownBars = input.int(10, "Cooldown after a signal (bars)", minval=0, maxval=200, group="Signal confirmation")
+minimumSignalScore = input.int(3, "Minimum advanced score (out of 6)", minval=3, maxval=6, group="Signal confirmation")
+signalCooldownBars = input.int(0, "Cooldown after a signal (bars)", minval=0, maxval=200, group="Signal confirmation")
 showTradePlan = input.bool(true, "Show entry, SL and TP1/TP2/TP3", group="Signal confirmation")
 showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
@@ -235,14 +236,19 @@ var line tp2PlanLine = na
 var line tp3PlanLine = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= signalCooldownBars
 
-longSignal = barstate.isconfirmed and longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid)
-shortSignal = barstate.isconfirmed and shortEntryPattern and close < ema20 and higherTimeframeBearish and signalSessionAllowed and shortScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBearishObValid)
-stopPrice = longSignal ? activeBullishObBottom : shortSignal ? activeBearishObTop : na
+baseLongSignal = bullishBos and close > ema20
+baseShortSignal = bearishBos and close < ema20
+advancedLongSignal = longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid)
+advancedShortSignal = shortEntryPattern and close < ema20 and higherTimeframeBearish and signalSessionAllowed and shortScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBearishObValid)
+longSignal = barstate.isconfirmed and (useAdvancedSignalConfirmation ? advancedLongSignal : baseLongSignal)
+shortSignal = barstate.isconfirmed and (useAdvancedSignalConfirmation ? advancedShortSignal : baseShortSignal)
+stopPrice = longSignal ? (useAdvancedSignalConfirmation ? activeBullishObBottom : lastLow) : shortSignal ? (useAdvancedSignalConfirmation ? activeBearishObTop : lastHigh) : na
 if longSignal or shortSignal
     lastSignalBar := bar_index
     directionText = longSignal ? "LONG " : "SHORT "
     signalScore = longSignal ? longScore : shortScore
-    label.new(bar_index, longSignal ? low : high, directionText + str.tostring(signalScore) + "/6", style=longSignal ? label.style_label_up : label.style_label_down, color=longSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
+    labelText = useAdvancedSignalConfirmation ? directionText + str.tostring(signalScore) + "/6" : directionText + "BASE"
+    label.new(bar_index, longSignal ? low : high, labelText, style=longSignal ? label.style_label_up : label.style_label_down, color=longSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
     if showTradePlan
         entryPrice = close
         riskDistance = math.abs(entryPrice - stopPrice)
