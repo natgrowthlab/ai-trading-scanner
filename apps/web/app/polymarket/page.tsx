@@ -23,6 +23,8 @@ export default function PolymarketPage() {
         <p>The external module stays separate from the web app and requires its own execution stack. Any future broker or Polymarket connection must be added explicitly, with dry-run validation and independent risk approval.</p>
       </article>
     </section>
+    <PolymarketReadiness />
     <p className="disclaimer">This page is an operational reference, not a trading recommendation. Prediction-market trading can result in loss of capital.</p>
   </main>;
 }
+import { PolymarketReadiness } from "../../components/polymarket-readiness";
