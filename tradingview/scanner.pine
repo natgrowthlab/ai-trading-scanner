@@ -22,7 +22,7 @@ atr = ta.atr(atrLength)
 
 // Reset the high and low at each configured session start, and extend the levels right.
 inSession = not na(time(timeframe.period, sessionInput, sessionTimezone))
-sessionStarted = inSession and (na(inSession[1]) or not inSession[1])
+sessionStarted = inSession and not inSession[1]
 var float sessionHigh = na
 var float sessionLow = na
 var line sessionHighLine = na
