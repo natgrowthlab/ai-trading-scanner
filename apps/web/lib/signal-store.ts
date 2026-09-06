@@ -43,3 +43,13 @@ export async function listStoredSignals(): Promise<TradingViewSignal[]> {
     return rows.map(row => ({ id: Number(row.id), symbol: row.symbol, direction: row.direction, score: Number(row.score), entry: String(row.entry), stopLoss: String(row.stop_loss), tp1: String(row.tp1), tp2: String(row.tp2), tp3: String(row.tp3), riskUsd: Number(row.risk_usd), status: row.status, timeframe: row.timeframe, receivedAt: new Date(row.received_at).toISOString() }));
   } catch { throw new Error("storage"); }
 }
+
+export async function storageHealth(): Promise<{ storage: "MYSQL_CONNECTED" | "MYSQL_UNAVAILABLE" | "EPHEMERAL_RUNTIME"; signalCount: number }> {
+  const current = databasePool();
+  if (!current) return { storage: "EPHEMERAL_RUNTIME", signalCount: fallbackSignals.length };
+  try {
+    await ensureSchema(current);
+    const [rows] = await current.query<Array<RowDataPacket & { total: number }>>("SELECT COUNT(*) AS total FROM tradingview_signals");
+    return { storage: "MYSQL_CONNECTED", signalCount: Number(rows[0]?.total ?? 0) };
+  } catch { return { storage: "MYSQL_UNAVAILABLE", signalCount: 0 }; }
+}
