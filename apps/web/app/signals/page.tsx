@@ -1,5 +1,5 @@
 import { SignalTable } from "../../components/signal-table";
 
 export default function SignalsPage() {
-  return <main><p className="eyebrow">SIGNALS</p><h1>Signal history</h1><p className="lead">Only validated, persisted signals appear here. No simulated trades or outcomes are shown.</p><SignalTable /><p className="disclaimer">Quant score and AI confidence are always separate.</p></main>;
+  return <main><p className="eyebrow">SIGNALS</p><h1>Signal history</h1><p className="lead">Only authenticated TradingView webhooks appear here. Each record includes the entry plan and risk targets; it is never an execution command.</p><SignalTable /><p className="disclaimer">Signal records currently use the Web App runtime. For durable history across restarts, connect a managed database before relying on this as a trading journal.</p></main>;
 }
