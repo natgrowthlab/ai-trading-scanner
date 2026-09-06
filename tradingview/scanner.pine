@@ -17,6 +17,15 @@ obMinOriginBodyAtr = input.float(0.35, "Minimum origin candle body (ATR)", minva
 obMinOriginRelativeVolume = input.float(1.00, "Minimum origin candle relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
 obMinScore = input.int(4, "Minimum OB confidence checks", minval=2, maxval=4, group="High-confidence order blocks")
 requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for LONG/SHORT", group="High-confidence order blocks")
+retestWindowBars = input.int(24, "OB retest window (bars)", minval=1, maxval=200, group="Signal confirmation")
+requireObRetest = input.bool(true, "Require OB retest for LONG/SHORT", group="Signal confirmation")
+higherTimeframe = input.timeframe("60", "Higher timeframe bias", group="Signal confirmation")
+filterSignalSessions = input.bool(true, "Limit intraday signals to London / New York", group="Signal confirmation")
+londonSession = input.session("0800-1200", "London session", group="Signal confirmation")
+newYorkSession = input.session("0830-1200", "New York session", group="Signal confirmation")
+minimumSignalScore = input.int(5, "Minimum signal score (out of 6)", minval=3, maxval=6, group="Signal confirmation")
+signalCooldownBars = input.int(10, "Cooldown after a signal (bars)", minval=0, maxval=200, group="Signal confirmation")
+showTradePlan = input.bool(true, "Show entry, SL and TP1/TP2/TP3", group="Signal confirmation")
 showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
 sessionTimezone = input.string("Etc/UTC", "Session timezone")
@@ -92,22 +101,41 @@ if bearishBos
 // Fair value gaps.
 bullishFvg = active and low > high[2] and (low - high[2]) / atr >= gapAtr
 bearishFvg = active and high < low[2] and (low[2] - high) / atr >= gapAtr
+var float latestBullishFvgTop = na
+var float latestBullishFvgBottom = na
+var int latestBullishFvgBar = na
+var float latestBearishFvgTop = na
+var float latestBearishFvgBottom = na
+var int latestBearishFvgBar = na
 if showFvg and bullishFvg
     box.new(bar_index - 2, low, bar_index, high[2], extend=extend.right, border_color=color.new(color.green, 45), bgcolor=color.new(color.green, 88))
 if showFvg and bearishFvg
     box.new(bar_index - 2, low[2], bar_index, high, extend=extend.right, border_color=color.new(color.red, 45), bgcolor=color.new(color.red, 88))
+if bullishFvg
+    latestBullishFvgTop := low
+    latestBullishFvgBottom := high[2]
+    latestBullishFvgBar := bar_index
+if bearishFvg
+    latestBearishFvgTop := low[2]
+    latestBearishFvgBottom := high
+    latestBearishFvgBar := bar_index
 
 // Only retain an OB when a confirmed BOS is accompanied by displacement and volume.
 // The origin candle is also scored, so ordinary opposite candles do not create zones.
 var box[] orderBlocks = array.new_box()
-createOrderBlock(isBullish) =>
+createOrderBlock(isBullish, shouldEvaluate) =>
     int offset = na
     bool created = false
-    for i = 1 to orderBlockLookback
-        oppositeCandle = isBullish ? close[i] < open[i] : close[i] > open[i]
-        if na(offset) and oppositeCandle
-            offset := i
-    if not na(offset)
+    float blockTop = na
+    float blockBottom = na
+    bool fvgConfluence = false
+    box createdBox = na
+    if shouldEvaluate
+        for i = 1 to orderBlockLookback
+            oppositeCandle = isBullish ? close[i] < open[i] : close[i] > open[i]
+            if na(offset) and oppositeCandle
+                offset := i
+    if shouldEvaluate and not na(offset)
         originBodyAtr = not na(atr[offset]) and atr[offset] > 0 ? math.abs(close[offset] - open[offset]) / atr[offset] : 0.0
         originVolumeAverage = volumeAverage[offset]
         originRelativeVolume = not na(originVolumeAverage) and originVolumeAverage > 0 ? volume[offset] / originVolumeAverage : 0.0
@@ -122,25 +150,105 @@ createOrderBlock(isBullish) =>
             confidenceChecks += 1
         if confidenceChecks >= obMinScore
             created := true
+            blockTop := math.max(open[offset], close[offset])
+            blockBottom := math.min(open[offset], close[offset])
+            fvgTop = isBullish ? latestBullishFvgTop : latestBearishFvgTop
+            fvgBottom = isBullish ? latestBullishFvgBottom : latestBearishFvgBottom
+            fvgBar = isBullish ? latestBullishFvgBar : latestBearishFvgBar
+            fvgConfluence := not na(fvgTop) and not na(fvgBottom) and not na(fvgBar) and bar_index - fvgBar <= orderBlockLookback and blockTop >= fvgBottom and blockBottom <= fvgTop
             if showOrderBlocks
-                top = math.max(open[offset], close[offset])
-                bottom = math.min(open[offset], close[offset])
                 blockColor = isBullish ? color.green : color.red
                 blockText = "BULLISH OB"
                 if not isBullish
                     blockText := "BEARISH OB"
-                newBlock = box.new(bar_index - offset, top, bar_index, bottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
-                array.push(orderBlocks, newBlock)
+                createdBox := box.new(bar_index - offset, blockTop, bar_index, blockBottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
+                array.push(orderBlocks, createdBox)
                 if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
                     box.delete(array.shift(orderBlocks))
-    created
+    [created, blockTop, blockBottom, fvgConfluence, createdBox]
 
-highConfidenceBullishOb = bullishBos ? createOrderBlock(true) : false
-highConfidenceBearishOb = bearishBos ? createOrderBlock(false) : false
+[highConfidenceBullishOb, bullishObTop, bullishObBottom, bullishObFvg, bullishObBox] = createOrderBlock(true, bullishBos)
+[highConfidenceBearishOb, bearishObTop, bearishObBottom, bearishObFvg, bearishObBox] = createOrderBlock(false, bearishBos)
 
-longSignal = bullishBos and close > ta.ema(close, 20) and (not requireHighConfidenceObForSignals or highConfidenceBullishOb)
-shortSignal = bearishBos and close < ta.ema(close, 20) and (not requireHighConfidenceObForSignals or highConfidenceBearishOb)
-stopPrice = longSignal ? lastLow : shortSignal ? lastHigh : na
+var float activeBullishObTop = na
+var float activeBullishObBottom = na
+var int activeBullishObBar = na
+var bool activeBullishObFvg = false
+var bool activeBullishObValid = false
+var box activeBullishObBox = na
+var float activeBearishObTop = na
+var float activeBearishObBottom = na
+var int activeBearishObBar = na
+var bool activeBearishObFvg = false
+var bool activeBearishObValid = false
+var box activeBearishObBox = na
+if highConfidenceBullishOb
+    activeBullishObTop := bullishObTop
+    activeBullishObBottom := bullishObBottom
+    activeBullishObBar := bar_index
+    activeBullishObFvg := bullishObFvg
+    activeBullishObValid := true
+    activeBullishObBox := bullishObBox
+if highConfidenceBearishOb
+    activeBearishObTop := bearishObTop
+    activeBearishObBottom := bearishObBottom
+    activeBearishObBar := bar_index
+    activeBearishObFvg := bearishObFvg
+    activeBearishObValid := true
+    activeBearishObBox := bearishObBox
+
+if not na(activeBullishObBottom) and close < activeBullishObBottom
+    box.delete(activeBullishObBox)
+    activeBullishObTop := na
+    activeBullishObBottom := na
+    activeBullishObBar := na
+    activeBullishObValid := false
+if not na(activeBearishObTop) and close > activeBearishObTop
+    box.delete(activeBearishObBox)
+    activeBearishObTop := na
+    activeBearishObBottom := na
+    activeBearishObBar := na
+    activeBearishObValid := false
+
+bullishObRetest = not na(activeBullishObTop) and bar_index > activeBullishObBar and bar_index - activeBullishObBar <= retestWindowBars and low <= activeBullishObTop and high >= activeBullishObBottom and close > open and close >= (activeBullishObTop + activeBullishObBottom) / 2
+bearishObRetest = not na(activeBearishObTop) and bar_index > activeBearishObBar and bar_index - activeBearishObBar <= retestWindowBars and high >= activeBearishObBottom and low <= activeBearishObTop and close < open and close <= (activeBearishObTop + activeBearishObBottom) / 2
+if bullishObRetest
+    box.set_bgcolor(activeBullishObBox, color.new(color.green, 92))
+if bearishObRetest
+    box.set_bgcolor(activeBearishObBox, color.new(color.red, 92))
+
+ema20 = ta.ema(close, 20)
+higherTimeframeBullish = request.security(syminfo.tickerid, higherTimeframe, close > ta.ema(close, 20))
+higherTimeframeBearish = request.security(syminfo.tickerid, higherTimeframe, close < ta.ema(close, 20))
+inLondon = not na(time(timeframe.period, londonSession, "Europe/London"))
+inNewYork = not na(time(timeframe.period, newYorkSession, "America/New_York"))
+signalSessionAllowed = not filterSignalSessions or timeframe.isdaily or inLondon or inNewYork
+longEntryPattern = requireObRetest ? bullishObRetest : highConfidenceBullishOb
+shortEntryPattern = requireObRetest ? bearishObRetest : highConfidenceBearishOb
+longScore = (activeBullishObValid ? 1 : 0) + (bullishObRetest ? 1 : 0) + (close > ema20 ? 1 : 0) + (higherTimeframeBullish ? 1 : 0) + (activeBullishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
+shortScore = (activeBearishObValid ? 1 : 0) + (bearishObRetest ? 1 : 0) + (close < ema20 ? 1 : 0) + (higherTimeframeBearish ? 1 : 0) + (activeBearishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
+var int lastSignalBar = na
+cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= signalCooldownBars
+
+longSignal = barstate.isconfirmed and longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid)
+shortSignal = barstate.isconfirmed and shortEntryPattern and close < ema20 and higherTimeframeBearish and signalSessionAllowed and shortScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBearishObValid)
+stopPrice = longSignal ? activeBullishObBottom : shortSignal ? activeBearishObTop : na
+if longSignal or shortSignal
+    lastSignalBar := bar_index
+    directionText = longSignal ? "LONG " : "SHORT "
+    signalScore = longSignal ? longScore : shortScore
+    label.new(bar_index, longSignal ? low : high, directionText + str.tostring(signalScore) + "/6", style=longSignal ? label.style_label_up : label.style_label_down, color=longSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
+    if showTradePlan
+        entryPrice = close
+        riskDistance = math.abs(entryPrice - stopPrice)
+        line.new(bar_index, entryPrice, bar_index + 1, entryPrice, extend=extend.right, color=color.white, style=line.style_dotted)
+        line.new(bar_index, stopPrice, bar_index + 1, stopPrice, extend=extend.right, color=color.red, style=line.style_dashed)
+        tp1 = longSignal ? entryPrice + riskDistance : entryPrice - riskDistance
+        tp2 = longSignal ? entryPrice + riskDistance * 2 : entryPrice - riskDistance * 2
+        tp3 = longSignal ? entryPrice + riskDistance * 3 : entryPrice - riskDistance * 3
+        line.new(bar_index, tp1, bar_index + 1, tp1, extend=extend.right, color=color.new(color.green, 10), style=line.style_dotted)
+        line.new(bar_index, tp2, bar_index + 1, tp2, extend=extend.right, color=color.new(color.green, 25), style=line.style_dotted)
+        line.new(bar_index, tp3, bar_index + 1, tp3, extend=extend.right, color=color.new(color.green, 40), style=line.style_dotted)
 plotshape(longSignal, title="Long", text="LONG", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
 plot(stopPrice, "Stop Loss", display=display.none)
