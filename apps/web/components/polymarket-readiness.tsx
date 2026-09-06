@@ -1,17 +1,24 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type Readiness = {
   decision: "READY_FOR_REVIEW" | "NOT_READY";
   checks: { label: string; passed: boolean; detail: string }[];
   disclaimer: string;
 };
+type Review = { id: number; decision: "READY_FOR_REVIEW" | "NOT_READY"; secondsRemaining: number; btcMoveUsd: number; selectedSidePrice: number; reviewedAt: string };
+
+function reviewedAt(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 
 export function PolymarketReadiness() {
   const [result, setResult] = useState<Readiness | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  const loadReviews = () => fetch("/api/v1/polymarket/readiness").then((response) => response.ok ? response.json() : Promise.reject(response)).then(setReviews).catch(() => undefined);
+  useEffect(() => { void loadReviews(); }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,6 +38,7 @@ export function PolymarketReadiness() {
       });
       if (!response.ok) throw new Error("request");
       setResult(await response.json());
+      void loadReviews();
     } catch {
       setError(true);
     } finally {
@@ -54,5 +62,6 @@ export function PolymarketReadiness() {
       {result ? <ul className="readiness-checks">{result.checks.map((check) => <li key={check.label} className={check.passed ? "passed" : "failed"}><strong>{check.passed ? "Pass" : "Review"} · {check.label}</strong><span>{check.detail}</span></li>)}</ul> : <p>Enter observed market values to evaluate the isolated reference rules.</p>}
       <p className="disclaimer">{result?.disclaimer ?? "This page never places orders or accesses Polymarket credentials."}</p>
     </aside>
+    <section className="review-history" aria-label="BTC 5m readiness review history"><h2>Recent analytical reviews</h2>{reviews.length ? <ul>{reviews.map((review) => <li key={review.id}><strong className={review.decision === "READY_FOR_REVIEW" ? "positive" : "negative"}>{review.decision === "READY_FOR_REVIEW" ? "Review" : "Not ready"}</strong><span>{review.secondsRemaining}s · ${review.btcMoveUsd.toFixed(2)} move · {(review.selectedSidePrice * 100).toFixed(0)}% side price</span><time dateTime={review.reviewedAt}>{reviewedAt(review.reviewedAt)}</time></li>)}</ul> : <p>No analytical reviews recorded yet.</p>}</section>
   </section>;
 }
