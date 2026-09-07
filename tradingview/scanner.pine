@@ -270,6 +270,7 @@ shortAPlusSignal = advancedShortSignal
 anyLongSignal = longSignal or longAPlusSignal
 anyShortSignal = shortSignal or shortAPlusSignal
 signalTier = longAPlusSignal or shortAPlusSignal ? "A_PLUS" : "BASE"
+signalScore = longAPlusSignal ? longScore : shortAPlusSignal ? shortScore : 0
 rawStopPrice = anyLongSignal ? (longAPlusSignal ? activeBullishObBottom : lastLow) : anyShortSignal ? (shortAPlusSignal ? activeBearishObTop : lastHigh) : na
 stopPrice = not na(rawStopPrice) ? math.round_to_mintick(rawStopPrice) : na
 if anyLongSignal or anyShortSignal
@@ -279,7 +280,6 @@ if anyLongSignal or anyShortSignal
     if shortAPlusSignal
         lastBearishAPlusObBar := activeBearishObBar
     directionText = anyLongSignal ? "LONG " : "SHORT "
-    signalScore = longAPlusSignal ? longScore : shortAPlusSignal ? shortScore : 0
     labelText = signalTier == "A_PLUS" ? directionText + "A+ " + str.tostring(signalScore) + "/6" : directionText + "BASE"
     label.new(bar_index, anyLongSignal ? low : high, labelText, style=anyLongSignal ? label.style_label_up : label.style_label_down, color=anyLongSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
     if showTradePlan
