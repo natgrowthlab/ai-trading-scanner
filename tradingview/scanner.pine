@@ -270,7 +270,6 @@ shortAPlusSignal = advancedShortSignal
 anyLongSignal = longSignal or longAPlusSignal
 anyShortSignal = shortSignal or shortAPlusSignal
 signalTier = longAPlusSignal or shortAPlusSignal ? "A_PLUS" : "BASE"
-signalScore = longAPlusSignal ? longScore : shortAPlusSignal ? shortScore : 0
 rawStopPrice = anyLongSignal ? (longAPlusSignal ? activeBullishObBottom : lastLow) : anyShortSignal ? (shortAPlusSignal ? activeBearishObTop : lastHigh) : na
 stopPrice = not na(rawStopPrice) ? math.round_to_mintick(rawStopPrice) : na
 if anyLongSignal or anyShortSignal
@@ -280,7 +279,7 @@ if anyLongSignal or anyShortSignal
     if shortAPlusSignal
         lastBearishAPlusObBar := activeBearishObBar
     directionText = anyLongSignal ? "LONG " : "SHORT "
-    labelText = signalTier == "A_PLUS" ? directionText + "A+ " + str.tostring(signalScore) + "/6" : directionText + "BASE"
+    labelText = signalTier == "A_PLUS" ? directionText + "A+ " + str.tostring(longAPlusSignal ? longScore : shortScore) + "/6" : directionText + "BASE"
     label.new(bar_index, anyLongSignal ? low : high, labelText, style=anyLongSignal ? label.style_label_up : label.style_label_down, color=anyLongSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
     if showTradePlan
         entryPrice = math.round_to_mintick(close)
@@ -311,8 +310,8 @@ alertcondition(anyShortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction
 // Create one TradingView alert using "Any alert() function call" after saving the script.
 signalReasons = signalTier == "A_PLUS" ? "OB_RETEST,MTF,SESSION" : "BOS,EMA20"
 if barstate.isconfirmed and webhookSecret != "" and anyLongSignal
-    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","tier":"' + signalTier + '","score":' + str.tostring(signalScore) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","tier":"' + signalTier + '","score":' + str.tostring(longAPlusSignal ? longScore : 0) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
     alert(longMessage, alert.freq_once_per_bar_close)
 if barstate.isconfirmed and webhookSecret != "" and anyShortSignal
-    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","tier":"' + signalTier + '","score":' + str.tostring(signalScore) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","tier":"' + signalTier + '","score":' + str.tostring(shortAPlusSignal ? shortScore : 0) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
     alert(shortMessage, alert.freq_once_per_bar_close)
