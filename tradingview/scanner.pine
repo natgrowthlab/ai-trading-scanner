@@ -16,11 +16,11 @@ obMinRelativeVolume = input.float(1.25, "Minimum BOS relative volume", minval=0.
 obMinOriginBodyAtr = input.float(0.35, "Minimum origin candle body (ATR)", minval=0.05, step=0.05, group="High-confidence order blocks")
 obMinOriginRelativeVolume = input.float(1.00, "Minimum origin candle relative volume", minval=0.5, step=0.05, group="High-confidence order blocks")
 obMinScore = input.int(4, "Minimum OB confidence checks", minval=2, maxval=4, group="High-confidence order blocks")
-requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for advanced mode", group="High-confidence order blocks")
+requireHighConfidenceObForSignals = input.bool(true, "Require high-confidence OB for A+ signals", group="High-confidence order blocks")
 retestWindowBars = input.int(24, "OB retest window (bars)", minval=1, maxval=200, group="Signal confirmation")
-useAdvancedSignalConfirmation = input.bool(false, "Use advanced confirmation for LONG/SHORT", group="Signal confirmation")
-requireObRetest = input.bool(true, "Require OB retest in advanced mode", group="Signal confirmation")
+requireObRetest = input.bool(true, "Require OB retest for A+ signals", group="Signal confirmation")
 higherTimeframe = input.timeframe("60", "Higher timeframe bias", group="Signal confirmation")
+automaticHigherTimeframe = input.bool(true, "Use automatic higher timeframe", group="Signal confirmation")
 filterSignalSessions = input.bool(false, "Limit intraday signals to London / New York", group="Signal confirmation")
 londonSession = input.session("0800-1200", "London session", group="Signal confirmation")
 newYorkSession = input.session("0830-1200", "New York session", group="Signal confirmation")
@@ -124,6 +124,7 @@ if bearishFvg
 // Only retain an OB when a confirmed BOS is accompanied by displacement and volume.
 // The origin candle is also scored, so ordinary opposite candles do not create zones.
 var box[] orderBlocks = array.new_box()
+var bool[] orderBlockDirections = array.new_bool()
 createOrderBlock(isBullish, shouldEvaluate) =>
     int offset = na
     bool created = false
@@ -164,8 +165,10 @@ createOrderBlock(isBullish, shouldEvaluate) =>
                     blockText := "BEARISH OB"
                 createdBox := box.new(bar_index - offset, blockTop, bar_index, blockBottom, extend=extend.right, border_color=color.new(blockColor, 10), bgcolor=color.new(blockColor, 80), text=blockText, text_color=color.white, text_size=size.tiny)
                 array.push(orderBlocks, createdBox)
+                array.push(orderBlockDirections, isBullish)
                 if array.size(orderBlocks) > maxHighConfidenceOrderBlocks
                     box.delete(array.shift(orderBlocks))
+                    array.shift(orderBlockDirections)
     [created, blockTop, blockBottom, fvgConfluence, createdBox]
 
 [highConfidenceBullishOb, bullishObTop, bullishObBottom, bullishObFvg, bullishObBox] = createOrderBlock(true, bullishBos)
@@ -211,6 +214,22 @@ if not na(activeBearishObTop) and close > activeBearishObTop
     activeBearishObBar := na
     activeBearishObValid := false
 
+// Old zones are removed on invalidation and faded after any mitigation.
+if array.size(orderBlocks) > 0
+    for i = array.size(orderBlocks) - 1 to 0
+        block = array.get(orderBlocks, i)
+        blockIsBullish = array.get(orderBlockDirections, i)
+        blockTop = box.get_top(block)
+        blockBottom = box.get_bottom(block)
+        invalidated = blockIsBullish ? close < blockBottom : close > blockTop
+        mitigated = low <= blockTop and high >= blockBottom
+        if invalidated
+            box.delete(block)
+            array.remove(orderBlocks, i)
+            array.remove(orderBlockDirections, i)
+        else if mitigated
+            box.set_bgcolor(block, blockIsBullish ? color.new(color.green, 93) : color.new(color.red, 93))
+
 bullishObRetest = not na(activeBullishObTop) and bar_index > activeBullishObBar and bar_index - activeBullishObBar <= retestWindowBars and low <= activeBullishObTop and high >= activeBullishObBottom and close > open and close >= (activeBullishObTop + activeBullishObBottom) / 2
 bearishObRetest = not na(activeBearishObTop) and bar_index > activeBearishObBar and bar_index - activeBearishObBar <= retestWindowBars and high >= activeBearishObBottom and low <= activeBearishObTop and close < open and close <= (activeBearishObTop + activeBearishObBottom) / 2
 if bullishObRetest
@@ -219,8 +238,10 @@ if bearishObRetest
     box.set_bgcolor(activeBearishObBox, color.new(color.red, 92))
 
 ema20 = ta.ema(close, 20)
-higherTimeframeBullish = request.security(syminfo.tickerid, higherTimeframe, close > ta.ema(close, 20))
-higherTimeframeBearish = request.security(syminfo.tickerid, higherTimeframe, close < ta.ema(close, 20))
+automaticBiasTimeframe = timeframe.isdaily ? "W" : timeframe.isminutes and timeframe.multiplier >= 60 ? "D" : "60"
+effectiveHigherTimeframe = automaticHigherTimeframe ? automaticBiasTimeframe : higherTimeframe
+higherTimeframeBullish = request.security(syminfo.tickerid, effectiveHigherTimeframe, close > ta.ema(close, 20))
+higherTimeframeBearish = request.security(syminfo.tickerid, effectiveHigherTimeframe, close < ta.ema(close, 20))
 inLondon = not na(time(timeframe.period, londonSession, "Europe/London"))
 inNewYork = not na(time(timeframe.period, newYorkSession, "America/New_York"))
 signalSessionAllowed = not filterSignalSessions or timeframe.isdaily or inLondon or inNewYork
@@ -229,6 +250,8 @@ shortEntryPattern = requireObRetest ? bearishObRetest : highConfidenceBearishOb
 longScore = (activeBullishObValid ? 1 : 0) + (bullishObRetest ? 1 : 0) + (close > ema20 ? 1 : 0) + (higherTimeframeBullish ? 1 : 0) + (activeBullishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
 shortScore = (activeBearishObValid ? 1 : 0) + (bearishObRetest ? 1 : 0) + (close < ema20 ? 1 : 0) + (higherTimeframeBearish ? 1 : 0) + (activeBearishObFvg ? 1 : 0) + (signalSessionAllowed ? 1 : 0)
 var int lastSignalBar = na
+var int lastBullishAPlusObBar = na
+var int lastBearishAPlusObBar = na
 var line entryPlanLine = na
 var line stopPlanLine = na
 var line tp1PlanLine = na
@@ -236,21 +259,31 @@ var line tp2PlanLine = na
 var line tp3PlanLine = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= signalCooldownBars
 
-baseLongSignal = bullishBos and close > ema20
-baseShortSignal = bearishBos and close < ema20
-advancedLongSignal = longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid)
-advancedShortSignal = shortEntryPattern and close < ema20 and higherTimeframeBearish and signalSessionAllowed and shortScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBearishObValid)
-longSignal = barstate.isconfirmed and (useAdvancedSignalConfirmation ? advancedLongSignal : baseLongSignal)
-shortSignal = barstate.isconfirmed and (useAdvancedSignalConfirmation ? advancedShortSignal : baseShortSignal)
-stopPrice = longSignal ? (useAdvancedSignalConfirmation ? activeBullishObBottom : lastLow) : shortSignal ? (useAdvancedSignalConfirmation ? activeBearishObTop : lastHigh) : na
-if longSignal or shortSignal
+baseLongSignal = barstate.isconfirmed and bullishBos and close > ema20
+baseShortSignal = barstate.isconfirmed and bearishBos and close < ema20
+advancedLongSignal = barstate.isconfirmed and longEntryPattern and close > ema20 and higherTimeframeBullish and signalSessionAllowed and longScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBullishObValid) and activeBullishObBar != lastBullishAPlusObBar
+advancedShortSignal = barstate.isconfirmed and shortEntryPattern and close < ema20 and higherTimeframeBearish and signalSessionAllowed and shortScore >= minimumSignalScore and cooldownComplete and (not requireHighConfidenceObForSignals or activeBearishObValid) and activeBearishObBar != lastBearishAPlusObBar
+longSignal = baseLongSignal
+shortSignal = baseShortSignal
+longAPlusSignal = advancedLongSignal
+shortAPlusSignal = advancedShortSignal
+anyLongSignal = longSignal or longAPlusSignal
+anyShortSignal = shortSignal or shortAPlusSignal
+signalTier = longAPlusSignal or shortAPlusSignal ? "A_PLUS" : "BASE"
+rawStopPrice = anyLongSignal ? (longAPlusSignal ? activeBullishObBottom : lastLow) : anyShortSignal ? (shortAPlusSignal ? activeBearishObTop : lastHigh) : na
+stopPrice = not na(rawStopPrice) ? math.round_to_mintick(rawStopPrice) : na
+if anyLongSignal or anyShortSignal
     lastSignalBar := bar_index
-    directionText = longSignal ? "LONG " : "SHORT "
-    signalScore = longSignal ? longScore : shortScore
-    labelText = useAdvancedSignalConfirmation ? directionText + str.tostring(signalScore) + "/6" : directionText + "BASE"
-    label.new(bar_index, longSignal ? low : high, labelText, style=longSignal ? label.style_label_up : label.style_label_down, color=longSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
+    if longAPlusSignal
+        lastBullishAPlusObBar := activeBullishObBar
+    if shortAPlusSignal
+        lastBearishAPlusObBar := activeBearishObBar
+    directionText = anyLongSignal ? "LONG " : "SHORT "
+    signalScore = longAPlusSignal ? longScore : shortAPlusSignal ? shortScore : 0
+    labelText = signalTier == "A_PLUS" ? directionText + "A+ " + str.tostring(signalScore) + "/6" : directionText + "BASE"
+    label.new(bar_index, anyLongSignal ? low : high, labelText, style=anyLongSignal ? label.style_label_up : label.style_label_down, color=anyLongSignal ? color.green : color.red, textcolor=color.white, size=size.tiny)
     if showTradePlan
-        entryPrice = close
+        entryPrice = math.round_to_mintick(close)
         riskDistance = math.abs(entryPrice - stopPrice)
         line.delete(entryPlanLine)
         line.delete(stopPlanLine)
@@ -259,24 +292,27 @@ if longSignal or shortSignal
         line.delete(tp3PlanLine)
         entryPlanLine := line.new(bar_index, entryPrice, bar_index + 1, entryPrice, extend=extend.right, color=color.white, style=line.style_dotted)
         stopPlanLine := line.new(bar_index, stopPrice, bar_index + 1, stopPrice, extend=extend.right, color=color.red, style=line.style_dashed)
-        tp1 = longSignal ? entryPrice + riskDistance : entryPrice - riskDistance
-        tp2 = longSignal ? entryPrice + riskDistance * 2 : entryPrice - riskDistance * 2
-        tp3 = longSignal ? entryPrice + riskDistance * 3 : entryPrice - riskDistance * 3
+        tp1 = math.round_to_mintick(anyLongSignal ? entryPrice + riskDistance : entryPrice - riskDistance)
+        tp2 = math.round_to_mintick(anyLongSignal ? entryPrice + riskDistance * 2 : entryPrice - riskDistance * 2)
+        tp3 = math.round_to_mintick(anyLongSignal ? entryPrice + riskDistance * 3 : entryPrice - riskDistance * 3)
         tp1PlanLine := line.new(bar_index, tp1, bar_index + 1, tp1, extend=extend.right, color=color.new(color.green, 10), style=line.style_dotted)
         tp2PlanLine := line.new(bar_index, tp2, bar_index + 1, tp2, extend=extend.right, color=color.new(color.green, 25), style=line.style_dotted)
         tp3PlanLine := line.new(bar_index, tp3, bar_index + 1, tp3, extend=extend.right, color=color.new(color.green, 40), style=line.style_dotted)
 plotshape(longSignal, title="Long", text="LONG", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.tiny)
 plotshape(shortSignal, title="Short", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
+plotshape(longAPlusSignal, title="Long A+", text="LONG A+", style=shape.labelup, location=location.belowbar, color=color.lime, textcolor=color.black, size=size.small)
+plotshape(shortAPlusSignal, title="Short A+", text="SHORT A+", style=shape.labeldown, location=location.abovebar, color=color.orange, textcolor=color.black, size=size.small)
 plot(stopPrice, "Stop Loss", display=display.none)
 
-alertcondition(longSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
-alertcondition(shortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
+alertcondition(anyLongSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
+alertcondition(anyShortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
 
 // Dynamic alert() messages include the configured secret and live calculated stop.
 // Create one TradingView alert using "Any alert() function call" after saving the script.
-if barstate.isconfirmed and webhookSecret != "" and longSignal
-    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+signalReasons = signalTier == "A_PLUS" ? "OB_RETEST,MTF,SESSION" : "BOS,EMA20"
+if barstate.isconfirmed and webhookSecret != "" and anyLongSignal
+    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","tier":"' + signalTier + '","score":' + str.tostring(signalScore) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
     alert(longMessage, alert.freq_once_per_bar_close)
-if barstate.isconfirmed and webhookSecret != "" and shortSignal
-    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+if barstate.isconfirmed and webhookSecret != "" and anyShortSignal
+    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","tier":"' + signalTier + '","score":' + str.tostring(signalScore) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
     alert(shortMessage, alert.freq_once_per_bar_close)

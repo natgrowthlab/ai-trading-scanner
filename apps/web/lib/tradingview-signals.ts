@@ -6,6 +6,8 @@ export type TradingViewSignal = {
   symbol: string;
   direction: "LONG" | "SHORT";
   score: number;
+  tier: "BASE" | "A_PLUS";
+  reasons: string[];
   entry: string;
   stopLoss: string;
   tp1: string;
@@ -25,6 +27,9 @@ type TradingViewPayload = {
   direction?: unknown;
   price?: unknown;
   stop_loss?: unknown;
+  score?: unknown;
+  tier?: unknown;
+  reasons?: unknown;
 };
 
 const supportedTimeframes: Record<string, string> = {
@@ -52,6 +57,8 @@ async function notifyTelegram(signal: TradingViewSignal): Promise<void> {
   const text = [
     "📈 AI Trading Scanner",
     `${signal.direction === "LONG" ? "BUY" : "SELL"} ${signal.symbol}`,
+    `Tier: ${signal.tier} · Score: ${signal.score}/6`,
+    `Reasons: ${signal.reasons.join(", ")}`,
     `Entry: ${signal.entry}`,
     `SL: ${signal.stopLoss}`,
     `TP1: ${signal.tp1}`,
@@ -94,13 +101,16 @@ export async function ingestTradingViewPayload(payload: TradingViewPayload): Pro
   const format = (value: number) => value.toFixed(2);
 
   const timeframe = supportedTimeframes[payload.timeframe];
+  const score = typeof payload.score === "number" && Number.isInteger(payload.score) && payload.score >= 0 && payload.score <= 6 ? payload.score : 0;
+  const tier = payload.tier === "A_PLUS" ? "A_PLUS" : "BASE";
+  const reasons = typeof payload.reasons === "string" ? payload.reasons.split(",").map(value => value.trim()).filter(value => /^[A-Z0-9_]{2,24}$/.test(value)).slice(0, 6) : ["BOS", "EMA20"];
   const key = `${payload.symbol}|${timeframe}|${payload.direction}`;
   const now = Date.now();
   for (const [recentKey, receivedAt] of recentKeys) if (now - receivedAt >= DEDUPLICATION_WINDOW_MS) recentKeys.delete(recentKey);
   if (now - (recentKeys.get(key) ?? 0) < DEDUPLICATION_WINDOW_MS) return { status: "duplicate" };
   recentKeys.set(key, now);
   const signal: TradingViewSignal = {
-    id: nextId++, symbol: payload.symbol, direction: payload.direction, score: 0,
+    id: nextId++, symbol: payload.symbol, direction: payload.direction, score, tier, reasons,
     entry: format(price), stopLoss: format(stop), tp1: format(target(1)), tp2: format(target(2)), tp3: format(target(3)), riskUsd: 100,
     status: "received", timeframe, receivedAt: new Date(now).toISOString(),
   };

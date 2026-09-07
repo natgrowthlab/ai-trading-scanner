@@ -40,7 +40,7 @@ export async function listStoredSignals(): Promise<TradingViewSignal[]> {
   try {
     await ensureSchema(current);
     const [rows] = await current.query<Array<RowDataPacket & { id: number; symbol: string; direction: "LONG" | "SHORT"; score: number; entry: string; stop_loss: string; tp1: string; tp2: string; tp3: string; risk_usd: string; status: "received"; timeframe: string; received_at: Date }>>("SELECT id, symbol, direction, score, entry, stop_loss, tp1, tp2, tp3, risk_usd, status, timeframe, received_at FROM tradingview_signals ORDER BY received_at DESC LIMIT 100");
-    return rows.map(row => ({ id: Number(row.id), symbol: row.symbol, direction: row.direction, score: Number(row.score), entry: String(row.entry), stopLoss: String(row.stop_loss), tp1: String(row.tp1), tp2: String(row.tp2), tp3: String(row.tp3), riskUsd: Number(row.risk_usd), status: row.status, timeframe: row.timeframe, receivedAt: new Date(row.received_at).toISOString() }));
+    return rows.map(row => ({ id: Number(row.id), symbol: row.symbol, direction: row.direction, score: Number(row.score), tier: "BASE", reasons: [], entry: String(row.entry), stopLoss: String(row.stop_loss), tp1: String(row.tp1), tp2: String(row.tp2), tp3: String(row.tp3), riskUsd: Number(row.risk_usd), status: row.status, timeframe: row.timeframe, receivedAt: new Date(row.received_at).toISOString() }));
   } catch { throw new Error("storage"); }
 }
 
