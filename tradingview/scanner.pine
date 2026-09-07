@@ -31,7 +31,7 @@ showSessionLevels = input.bool(true, "Show session high / low")
 sessionInput = input.session("0000-2359", "Session")
 sessionTimezone = input.string("Etc/UTC", "Session timezone")
 showTrendStructure = input.bool(true, "Show trendlines, ceilings and floors")
-webhookSecret = input.string("", "Webhook secret", group="Automation", tooltip="Use the same secret configured in the scanner Web App. This value is only included in alert() webhook messages.")
+telegramChatId = input.string("", "Telegram chat ID", group="Telegram direct", tooltip="Your private chat or group chat ID. The bot token is never stored in this script; it belongs only in TradingView's Webhook URL.")
 
 supportedTimeframe = (timeframe.isminutes and (timeframe.multiplier == 1 or timeframe.multiplier == 5 or timeframe.multiplier == 60)) or timeframe.isdaily
 active = not restrictTimeframes or supportedTimeframe
@@ -303,15 +303,22 @@ plotshape(longAPlusSignal, title="Long A+", text="LONG A+", style=shape.labelup,
 plotshape(shortAPlusSignal, title="Short A+", text="SHORT A+", style=shape.labeldown, location=location.abovebar, color=color.orange, textcolor=color.black, size=size.small)
 plot(stopPrice, "Stop Loss", display=display.none)
 
-alertcondition(anyLongSignal, "AI Scanner Long", '{"event":"SIGNAL","direction":"LONG","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
-alertcondition(anyShortSignal, "AI Scanner Short", '{"event":"SIGNAL","direction":"SHORT","symbol":"{{ticker}}","timeframe":"{{interval}}","price":"{{close}}","stop_loss":{{plot("Stop Loss")}}}')
-
-// Dynamic alert() messages include the configured secret and live calculated stop.
-// Create one TradingView alert using "Any alert() function call" after saving the script.
+// Direct Telegram delivery. Create one TradingView alert using "Any alert() function call"
+// and configure its Webhook URL as https://api.telegram.org/botYOUR_BOT_TOKEN/sendMessage.
 signalReasons = signalTier == "A_PLUS" ? "OB_RETEST,MTF,SESSION" : "BOS,EMA20"
-if barstate.isconfirmed and webhookSecret != "" and anyLongSignal
-    longMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"LONG","tier":"' + signalTier + '","score":' + str.tostring(longAPlusSignal ? longScore : 0) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+alertEntry = math.round_to_mintick(close)
+alertRisk = not na(stopPrice) ? math.abs(alertEntry - stopPrice) : na
+longTp1 = math.round_to_mintick(alertEntry + alertRisk)
+longTp2 = math.round_to_mintick(alertEntry + alertRisk * 2)
+longTp3 = math.round_to_mintick(alertEntry + alertRisk * 3)
+shortTp1 = math.round_to_mintick(alertEntry - alertRisk)
+shortTp2 = math.round_to_mintick(alertEntry - alertRisk * 2)
+shortTp3 = math.round_to_mintick(alertEntry - alertRisk * 3)
+if barstate.isconfirmed and telegramChatId != "" and anyLongSignal
+    longText = "🟢 <b>BUY " + syminfo.ticker + "</b>\\nTF: " + timeframe.period + " | " + signalTier + " " + str.tostring(longAPlusSignal ? longScore : 0) + "/6\\nEntry: " + str.tostring(alertEntry) + "\\nTP1: " + str.tostring(longTp1) + "\\nTP2: " + str.tostring(longTp2) + "\\nTP3: " + str.tostring(longTp3) + "\\nSL: " + str.tostring(stopPrice) + "\\nReason: " + signalReasons
+    longMessage = '{"chat_id":"' + telegramChatId + '","text":"' + longText + '","parse_mode":"HTML","disable_web_page_preview":true}'
     alert(longMessage, alert.freq_once_per_bar_close)
-if barstate.isconfirmed and webhookSecret != "" and anyShortSignal
-    shortMessage = '{"secret":"' + webhookSecret + '","event":"SIGNAL","direction":"SHORT","tier":"' + signalTier + '","score":' + str.tostring(shortAPlusSignal ? shortScore : 0) + ',"reasons":"' + signalReasons + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","price":' + str.tostring(close) + ',"stop_loss":' + str.tostring(stopPrice) + '}'
+if barstate.isconfirmed and telegramChatId != "" and anyShortSignal
+    shortText = "🔴 <b>SELL " + syminfo.ticker + "</b>\\nTF: " + timeframe.period + " | " + signalTier + " " + str.tostring(shortAPlusSignal ? shortScore : 0) + "/6\\nEntry: " + str.tostring(alertEntry) + "\\nTP1: " + str.tostring(shortTp1) + "\\nTP2: " + str.tostring(shortTp2) + "\\nTP3: " + str.tostring(shortTp3) + "\\nSL: " + str.tostring(stopPrice) + "\\nReason: " + signalReasons
+    shortMessage = '{"chat_id":"' + telegramChatId + '","text":"' + shortText + '","parse_mode":"HTML","disable_web_page_preview":true}'
     alert(shortMessage, alert.freq_once_per_bar_close)

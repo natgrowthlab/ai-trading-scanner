@@ -6,12 +6,13 @@ Duplicate symbol/timeframe/direction events are suppressed for one minute. The l
 
 TradingView sends intervals such as 5, 60, 240, and D; the API normalizes those to 5m, 1h, 4h, and 1D.
 
-## Recommended live-signal setup
+## Direct Telegram setup (recommended)
 
-The repository Pine script includes a `Webhook secret` input under **Automation** and dynamic `alert()` messages. After applying that script to a chart, create one TradingView alert with:
+The Pine script now sends its formatted BUY/SELL plan straight from TradingView to Telegram. It does not depend on `scanner.natgrowthlab.com` for live delivery.
 
-- **Condition:** `AI Trading Scanner` → `Any alert() function call`
-- **Webhook URL:** `https://scanner.natgrowthlab.com/api/v1/webhooks/tradingview`
-- **Frequency:** once per bar close
+1. Open the indicator settings and enter your **Telegram chat ID** under **Telegram direct**.
+2. Create one TradingView alert with **Condition:** `AI Trading Scanner` → `Any alert() function call` and **Frequency:** once per bar close.
+3. In **Webhook URL**, enter `https://api.telegram.org/botYOUR_BOT_TOKEN/sendMessage` using your private bot token. Do not put the token in the Pine source or alert message.
+4. Leave the TradingView alert message field empty: the script generates the Telegram JSON with BUY/SELL, entry, TP1/TP2/TP3, SL, timeframe, tier, score, and reasons.
 
-The `alert()` call sends the authenticated JSON itself. Do not copy a secret into an alert message field or commit it to the Pine source. Existing `AI Scanner Long` and `AI Scanner Short` conditions remain available for compatibility, but require a manually-authenticated JSON message.
+TradingView and Telegram are still separate services: Pine can generate a message but cannot create the alert or set its webhook URL automatically. Keep the bot token private because anyone with it can control the bot.
