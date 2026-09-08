@@ -13,19 +13,21 @@ input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_H1;
 input bool            InpOnlyM1M5 = true;
 input int             InpSessionStartHour = 7;       // Broker server time
 input int             InpSessionEndHour = 17;        // Broker server time
-input int             InpMaxSpreadPoints = 30;
+input int             InpMaxSpreadPoints = 200;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
-input double          InpMaxLossUSD = 0.50;
+input double          InpMaxLossUSD = 1.50;
 input bool            InpUseCashTakeProfit = true;
-input double          InpTakeProfitUSD = 1.00;
+input double          InpTakeProfitUSD = 3.00;
 input bool            InpOpenOnActivation = false;   // Uses trend bias when no full setup is present
 input bool            InpUseFixedLot = false;
 input double          InpFixedLot = 0.01;
 input int             InpMaxOpenPositions = 3;
 input int             InpOrdersPerSignal = 1;
 input int             InpMaxTradesPerDay = 12;
-input double          InpMaxTotalRiskUSD = 1.50;
+input double          InpMaxTotalRiskUSD = 5.00;
+input double          InpMaxPerTradeRiskUSD = 5.00;
+input double          InpMaxDailyLossUSD = 100.00;
 input bool            InpEvaluateEveryTick = false;
 input int             InpMinimumSecondsBetweenEntries = 15;
 input bool            InpShowStatusPanel = true;
@@ -68,12 +70,13 @@ string lastStatus = "Loading";
 int OwnPositionCount();
 int EffectiveMaxPositions();
 double TotalOpenRisk();
+double DailyRealizedLoss();
 
 void SetStatus(const string status)
 {
    lastStatus=status;
    if(!InpShowStatusPanel) return;
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nOpen risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nOpen risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily loss: $",DoubleToString(DailyRealizedLoss(),2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -270,6 +273,31 @@ double TotalOpenRisk()
    return(risk);
 }
 
+double DailyRealizedLoss()
+{
+   MqlDateTime day;
+   TimeToStruct(TimeCurrent(),day);
+   day.hour=0;
+   day.min=0;
+   day.sec=0;
+   datetime startOfDay=StructToTime(day);
+   if(!HistorySelect(startOfDay,TimeCurrent())) return(0.0);
+   double loss=0.0;
+   uint dealCount=HistoryDealsTotal();
+   for(uint i=0;i<dealCount;i++)
+   {
+      ulong deal=HistoryDealGetTicket(i);
+      if(deal==0) continue;
+      if(HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol) continue;
+      if((ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)!=InpMagicNumber) continue;
+      long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
+      if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
+      double net=HistoryDealGetDouble(deal,DEAL_PROFIT)+HistoryDealGetDouble(deal,DEAL_COMMISSION)+HistoryDealGetDouble(deal,DEAL_SWAP);
+      if(net<0.0) loss-=net;
+   }
+   return(loss);
+}
+
 bool SpreadAllowed()
 {
    MqlTick tick;
@@ -345,6 +373,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(!SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) { SetStatus("Blocked — Algo Trading permission is off"); return; }
    RefreshTradeDay();
+   if(DailyRealizedLoss()>=InpMaxDailyLossUSD) { SetStatus("Blocked — daily loss limit reached"); return; }
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
    if(openPositions>=maxPositions) { SetStatus("Waiting — maximum open positions reached"); return; }
@@ -418,7 +447,8 @@ void EvaluateEntry(const bool intrabar=false)
    double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
    if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) { SetStatus("Blocked — broker minimum stop distance"); return; }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
-   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
+   if(tradeRisk<=0.0 || tradeRisk>InpMaxPerTradeRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds per-trade limit $"+DoubleToString(InpMaxPerTradeRiskUSD,2)); return; }
+   if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
    permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
