@@ -26,6 +26,8 @@ input int             InpMaxOpenPositions = 3;
 input int             InpOrdersPerSignal = 1;
 input int             InpMaxTradesPerDay = 12;
 input double          InpMaxTotalRiskUSD = 1.50;
+input bool            InpEvaluateEveryTick = false;
+input int             InpMinimumSecondsBetweenEntries = 15;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
@@ -51,6 +53,7 @@ int htfFastHandle = INVALID_HANDLE;
 int htfSlowHandle = INVALID_HANDLE;
 datetime lastClosedBar = 0;
 datetime lastSignalTime = 0;
+datetime lastEntryTime = 0;
 datetime processedH4Time = 0;
 double amdTargetLow = 0.0;
 bool amdTargetActive = false;
@@ -318,7 +321,7 @@ void ManageOpenPosition()
    }
 }
 
-void EvaluateEntry()
+void EvaluateEntry(const bool intrabar=false)
 {
    if(!InpEnableTrading || !IsScalpingTimeframe() || !InTradeSession() || !SpreadAllowed()) return;
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) return;
@@ -327,17 +330,21 @@ void EvaluateEntry()
    int openPositions=OwnPositionCount();
    if(openPositions>=maxPositions || tradesToday>=InpMaxTradesPerDay) return;
    int seconds=PeriodSeconds(_Period);
-   if(lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) return;
+   if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) return;
+   if(!intrabar && lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) return;
 
    MqlRates rates[];
    ArraySetAsSeries(rates,true);
    int count=CopyRates(_Symbol,_Period,0,360,rates);
    if(count<MathMax(InpATRPeriod+10,80)) return;
+   int signalShift=intrabar ? 0 : 1;
+   int priorShift=signalShift+1;
+   int fvgShift=signalShift+2;
    double atr,entryEma,htfFast,htfSlow;
-   if(!BufferValue(atrHandle,1,atr) || !BufferValue(entryEmaHandle,1,entryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) return;
+   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) return;
    double htfClose=iClose(_Symbol,InpTrendTimeframe,1);
    if(htfClose<=0.0) return;
-   double relativeAtr=atr/rates[1].close;
+   double relativeAtr=atr/rates[signalShift].close;
    double relativeAtrAverage=0.0;
    for(int i=1;i<=50;i++)
    {
@@ -351,21 +358,21 @@ void EvaluateEntry()
    UpdateAMDTarget();
    double swingHigh=LatestSwingHigh(rates,count);
    double swingLow=LatestSwingLow(rates,count);
-   bool bullishBreak=swingHigh>0.0 && rates[1].close>swingHigh && rates[2].close<=swingHigh;
-   bool bearishBreak=swingLow>0.0 && rates[1].close<swingLow && rates[2].close>=swingLow;
-   bool sweepLow=swingLow>0.0 && rates[1].low<swingLow && rates[1].close>swingLow;
-   bool sweepHigh=swingHigh>0.0 && rates[1].high>swingHigh && rates[1].close<swingHigh;
-   bool bullishFvg=rates[1].low>rates[3].high;
-   bool bearishFvg=rates[1].high<rates[3].low;
+   bool bullishBreak=swingHigh>0.0 && rates[signalShift].close>swingHigh && rates[priorShift].close<=swingHigh;
+   bool bearishBreak=swingLow>0.0 && rates[signalShift].close<swingLow && rates[priorShift].close>=swingLow;
+   bool sweepLow=swingLow>0.0 && rates[signalShift].low<swingLow && rates[signalShift].close>swingLow;
+   bool sweepHigh=swingHigh>0.0 && rates[signalShift].high>swingHigh && rates[signalShift].close<swingHigh;
+   bool bullishFvg=rates[signalShift].low>rates[fvgShift].high;
+   bool bearishFvg=rates[signalShift].high<rates[fvgShift].low;
    int longScore=(sweepLow ? 1 : 0)+(bullishFvg ? 1 : 0);
    int shortScore=(sweepHigh ? 1 : 0)+(bearishFvg ? 1 : 0);
    bool trendLong=htfClose>htfFast && htfFast>htfSlow;
    bool trendShort=htfClose<htfFast && htfFast<htfSlow;
-   bool longSignal=trendLong && rates[1].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
-   bool amdShort=InpEnableAMDShorts && amdTargetActive && rates[1].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
-   bool shortSignal=trendShort && rates[1].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
-   bool activationLong=InpOpenOnActivation && trendLong && rates[1].close>entryEma;
-   bool activationShort=InpOpenOnActivation && trendShort && rates[1].close<entryEma;
+   bool longSignal=trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
+   bool amdShort=InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
+   bool shortSignal=trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
+   bool activationLong=InpOpenOnActivation && trendLong && rates[signalShift].close>entryEma;
+   bool activationShort=InpOpenOnActivation && trendShort && rates[signalShift].close<entryEma;
    if(!longSignal && !amdShort && !shortSignal)
    {
       longSignal=activationLong;
@@ -375,7 +382,7 @@ void EvaluateEntry()
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double stop=isBuy ? MathMin(rates[1].low,swingLow>0.0 ? swingLow : rates[1].low) : MathMax(rates[1].high,swingHigh>0.0 ? swingHigh : rates[1].high);
+   double stop=isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high);
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) return;
@@ -400,7 +407,8 @@ void EvaluateEntry()
       bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
       if(sent && TradeResultOK())
       {
-         lastSignalTime=rates[1].time;
+         lastSignalTime=rates[signalShift].time;
+         lastEntryTime=TimeCurrent();
          tradesToday++;
          tp1Done=false;
          tp2Done=false;
@@ -412,6 +420,11 @@ void EvaluateEntry()
 void OnTick()
 {
    ManageOpenPosition();
+   if(InpEvaluateEveryTick)
+   {
+      EvaluateEntry(true);
+      return;
+   }
    datetime closedBar=iTime(_Symbol,_Period,1);
    if(closedBar<=0) return;
    if(lastClosedBar==0)

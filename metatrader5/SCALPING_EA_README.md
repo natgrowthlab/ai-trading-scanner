@@ -22,6 +22,10 @@ For an aggressive configuration, enable `InpUseFixedLot` and set `InpFixedLot`, 
 
 When more than one position is allowed, every position retains its own broker-side SL and TP3. Automatic partial exits are intentionally skipped in stacked mode to avoid applying a partial close to the wrong position.
 
+## Tick-entry mode
+
+Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 candle on every price tick rather than waiting for its close. `InpMinimumSecondsBetweenEntries` limits repeated intrabar entries. This mode can enter within seconds when a price crosses a qualifying level, but intrabar conditions can disappear before candle close and are materially less reliable than closed-bar confirmation.
+
 ## Installation and testing
 
 1. Copy the source to MQL5/Experts/.
