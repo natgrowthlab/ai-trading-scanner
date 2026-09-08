@@ -1,5 +1,5 @@
 #property copyright "NAT Growth Lab"
-#property version   "1.0"
+#property version   "1.1"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -13,6 +13,8 @@ input double InpFallbackRR = 2.0;
 input bool   InpStructureFallback = true;
 input int    InpPlanBarsRight = 30;
 input bool   InpShowAMDTarget = true;
+input int    InpHistoricalPlans = 6;
+input bool   InpShowStatusPanel = true;
 
 string prefix = "AMDTradePlan_";
 datetime lastProcessedBar = 0;
@@ -74,6 +76,47 @@ double AverageTrueRange(const double &high[],const double &low[],const double &c
    return(total/bars);
 }
 
+double AverageTrueRangeAt(const double &high[],const double &low[],const double &close[],int count,int start)
+{
+   int bars=MathMin(InpATRPeriod,count-start-2);
+   if(bars<=0) return(_Point*10.0);
+   double total=0.0;
+   for(int i=start;i<start+bars;i++)
+   {
+      double previousClose=close[i+1];
+      total+=MathMax(high[i]-low[i],MathMax(MathAbs(high[i]-previousClose),MathAbs(low[i]-previousClose)));
+   }
+   return(total/bars);
+}
+
+double PreviousSwingHigh(const double &high[],int from,int count)
+{
+   int limit=MathMin(count-InpSwingBars,from+250);
+   for(int i=from+InpSwingBars+1;i<limit;i++) if(IsSwingHigh(high,i,count)) return(high[i]);
+   return(0.0);
+}
+
+double PreviousSwingLow(const double &low[],int from,int count)
+{
+   int limit=MathMin(count-InpSwingBars,from+250);
+   for(int i=from+InpSwingBars+1;i<limit;i++) if(IsSwingLow(low,i,count)) return(low[i]);
+   return(0.0);
+}
+
+void StatusPanel(string message,color textColor)
+{
+   if(!InpShowStatusPanel) return;
+   string name=prefix+"STATUS";
+   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,14);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,24);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,11);
+   ObjectSetString(0,name,OBJPROP_FONT,"Arial Bold");
+   ObjectSetString(0,name,OBJPROP_TEXT,message);
+}
+
 void Line(const string id,datetime t1,double p,datetime t2,color c,ENUM_LINE_STYLE style)
 {
    string n=prefix+id;
@@ -119,9 +162,43 @@ void DrawPlan(datetime signalTime,double entry,double stop,double target,bool is
    PriceLabel(tag+"_signal",signalTime,entry,isBuy ? "BUY" : "SELL",isBuy ? clrLime : clrTomato);
 }
 
+void DrawRecentHistoricalPlans(const datetime &time[],const double &high[],const double &low[],const double &close[],int count)
+{
+   if(!InpStructureFallback || InpHistoricalPlans<=0) return;
+   int drawn=0;
+   int scanBars=MathMin(count-InpSwingBars-3,300);
+   for(int i=4;i<scanBars && drawn<InpHistoricalPlans;i++)
+   {
+      double swingHigh=PreviousSwingHigh(high,i,count);
+      double swingLow=PreviousSwingLow(low,i,count);
+      bool buy=swingHigh>0.0 && close[i]>swingHigh && close[i+1]<=swingHigh;
+      bool sell=swingLow>0.0 && close[i]<swingLow && close[i+1]>=swingLow;
+      if(!buy && !sell) continue;
+      double atr=AverageTrueRangeAt(high,low,close,count,i);
+      double entry=NormalizeDouble(close[i],_Digits);
+      double stop=buy ? MathMin(low[i],swingLow) : MathMax(high[i],swingHigh);
+      stop=buy ? MathMin(stop,entry-atr*InpMinStopATR) : MathMax(stop,entry+atr*InpMinStopATR);
+      double risk=MathAbs(entry-stop);
+      if(risk<=_Point) continue;
+      double target=buy ? entry+risk*InpFallbackRR : entry-risk*InpFallbackRR;
+      DrawPlan(time[i],entry,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),buy);
+      drawn++;
+   }
+}
+
 int OnCalculate(const int rates_total,const int prev_calculated,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[],const long &tick_volume[],const long &volume[],const int &spread[])
 {
-   if(rates_total<60 || time[1]==lastProcessedBar) return(rates_total);
+   if(rates_total<60)
+   {
+      StatusPanel("AMD Trade Plan MT5\nLoading price history...",clrGold);
+      return(rates_total);
+   }
+   if(prev_calculated==0)
+   {
+      StatusPanel("AMD Trade Plan MT5\nLoading recent BUY / SELL plans...",clrGold);
+      DrawRecentHistoricalPlans(time,high,low,close,rates_total);
+   }
+   if(time[1]==lastProcessedBar) return(rates_total);
    lastProcessedBar=time[1];
    datetime h4time=iTime(_Symbol,InpAMDTimeframe,1);
    double h4open=iOpen(_Symbol,InpAMDTimeframe,1), h4close=iClose(_Symbol,InpAMDTimeframe,1), h4low=iLow(_Symbol,InpAMDTimeframe,1);
@@ -134,6 +211,7 @@ int OnCalculate(const int rates_total,const int prev_calculated,const datetime &
          if(InpShowAMDTarget) Line("AMD_TARGET",time[1],amdTargetLow,time[1]+PeriodSeconds(_Period)*InpPlanBarsRight,clrMagenta,STYLE_DASH);
       }
    }
+   StatusPanel(amdTargetActive ? "AMD Trade Plan MT5\n4H wickless-candle target: ACTIVE" : "AMD Trade Plan MT5\nMonitoring AMD and market structure",amdTargetActive ? clrMagenta : clrAqua);
    double swingHigh=LatestSwingHigh(high,rates_total), swingLow=LatestSwingLow(low,rates_total);
    bool bullishBreak=swingHigh>0 && close[1]>swingHigh && close[2]<=swingHigh;
    bool bearishBreak=swingLow>0 && close[1]<swingLow && close[2]>=swingLow;
