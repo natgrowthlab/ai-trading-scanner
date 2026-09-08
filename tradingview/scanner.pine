@@ -9,6 +9,7 @@ amdTimeframe = input.timeframe("240", "AMD reference timeframe", group="AMD wick
 wickToleranceTicks = input.int(0, "Wick tolerance (ticks)", minval=0, maxval=10, group="AMD wickless candle")
 minimumConfirmations = input.int(1, "Lower-timeframe confirmations", minval=1, maxval=3, group="AMD wickless candle")
 showAmdTarget = input.bool(true, "Show active 4H AMD target", group="AMD wickless candle")
+showStructureFallback = input.bool(true, "Show structure plans when no AMD target", group="Signals")
 atrLength = input.int(14, "ATR length", minval=1, group="Trade plan")
 minimumRiskAtr = input.float(0.5, "Minimum stop distance (ATR)", minval=0.1, step=0.1, group="Trade plan")
 targetRiskReward = input.float(2.0, "Chart target (R)", minval=1.0, step=0.25, group="Trade plan")
@@ -51,6 +52,7 @@ if not na(swingHigh)
 if not na(swingLow)
     lastSwingLow := swingLow
 
+bullishBreak = active and not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
 bearishBreak = active and not na(lastSwingLow) and close < lastSwingLow and close[1] >= lastSwingLow
 liquiditySweepHigh = active and not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
 bearishFvg = active and high < low[2]
@@ -81,8 +83,9 @@ if barstate.islast
 confirmationScore = (liquiditySweepHigh ? 1 : 0) + (bearishBreak ? 1 : 0) + (bearishFvg ? 1 : 0)
 var int lastSignalBar = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= cooldownBars
-longSignal = false
-shortSignal = barstate.isconfirmed and amdTargetActive and close > amdTargetLow and confirmationScore >= minimumConfirmations and cooldownComplete
+amdShortSignal = amdTargetActive and close > amdTargetLow and confirmationScore >= minimumConfirmations
+longSignal = barstate.isconfirmed and cooldownComplete and showStructureFallback and bullishBreak
+shortSignal = barstate.isconfirmed and cooldownComplete and (amdShortSignal or (showStructureFallback and bearishBreak))
 
 // One clear risk/reward plan per signal: green target, red stop, blue entry.
 var int activeDirection = 0
@@ -111,7 +114,7 @@ if longSignal or shortSignal
     activeStop := activeDirection == 1 ? math.min(longStopCandidate, activeEntry - minimumDistance) : math.max(shortStopCandidate, activeEntry + minimumDistance)
     activeStop := math.round_to_mintick(activeStop)
     risk = math.abs(activeEntry - activeStop)
-    activeTarget := math.round_to_mintick(activeDirection == 1 ? activeEntry + risk * targetRiskReward : amdTargetLow)
+    activeTarget := math.round_to_mintick(activeDirection == 1 ? activeEntry + risk * targetRiskReward : amdTargetActive ? amdTargetLow : activeEntry - risk * targetRiskReward)
     targetDistance = math.abs(activeTarget - activeEntry)
     activeTp1 := math.round_to_mintick(activeDirection == 1 ? activeEntry + targetDistance / 3 : activeEntry - targetDistance / 3)
     activeTp2 := math.round_to_mintick(activeDirection == 1 ? activeEntry + targetDistance * 2 / 3 : activeEntry - targetDistance * 2 / 3)
