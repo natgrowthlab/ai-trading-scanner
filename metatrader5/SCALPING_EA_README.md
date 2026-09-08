@@ -26,6 +26,10 @@ When more than one position is allowed, every position retains its own broker-si
 
 Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 candle on every price tick rather than waiting for its close. `InpMinimumSecondsBetweenEntries` limits repeated intrabar entries. This mode can enter within seconds when a price crosses a qualifying level, but intrabar conditions can disappear before candle close and are materially less reliable than closed-bar confirmation.
 
+## Status panel and troubleshooting
+
+Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
+
 ## Installation and testing
 
 1. Copy the source to MQL5/Experts/.

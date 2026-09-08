@@ -28,6 +28,8 @@ input int             InpMaxTradesPerDay = 12;
 input double          InpMaxTotalRiskUSD = 1.50;
 input bool            InpEvaluateEveryTick = false;
 input int             InpMinimumSecondsBetweenEntries = 15;
+input bool            InpShowStatusPanel = true;
+input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
@@ -61,6 +63,17 @@ bool tp1Done = false;
 bool tp2Done = false;
 int tradesToday = 0;
 int trackedDayKey = -1;
+string lastStatus = "Loading";
+
+int OwnPositionCount();
+int EffectiveMaxPositions();
+
+void SetStatus(const string status)
+{
+   lastStatus=status;
+   if(!InpShowStatusPanel) return;
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+}
 
 int OnInit()
 {
@@ -76,6 +89,7 @@ int OnInit()
       Print("Could not create indicator handles.");
       return(INIT_FAILED);
    }
+   SetStatus(InpEnableTrading ? "Loaded — waiting for a price tick" : "Disabled — set InpEnableTrading=true");
    return(INIT_SUCCEEDED);
 }
 
@@ -85,6 +99,7 @@ void OnDeinit(const int reason)
    if(entryEmaHandle!=INVALID_HANDLE) IndicatorRelease(entryEmaHandle);
    if(htfFastHandle!=INVALID_HANDLE) IndicatorRelease(htfFastHandle);
    if(htfSlowHandle!=INVALID_HANDLE) IndicatorRelease(htfSlowHandle);
+   if(InpShowStatusPanel) Comment("");
 }
 
 bool BufferValue(const int handle,const int shift,double &value)
@@ -323,37 +338,41 @@ void ManageOpenPosition()
 
 void EvaluateEntry(const bool intrabar=false)
 {
-   if(!InpEnableTrading || !IsScalpingTimeframe() || !InTradeSession() || !SpreadAllowed()) return;
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) return;
+   if(!InpEnableTrading) { SetStatus("Disabled — set InpEnableTrading=true"); return; }
+   if(!IsScalpingTimeframe()) { SetStatus("Blocked — attach to M1 or M5"); return; }
+   if(!InTradeSession()) { SetStatus("Waiting — outside broker session"); return; }
+   if(!SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) { SetStatus("Blocked — Algo Trading permission is off"); return; }
    RefreshTradeDay();
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
-   if(openPositions>=maxPositions || tradesToday>=InpMaxTradesPerDay) return;
+   if(openPositions>=maxPositions) { SetStatus("Waiting — maximum open positions reached"); return; }
+   if(tradesToday>=InpMaxTradesPerDay) { SetStatus("Waiting — daily trade limit reached"); return; }
    int seconds=PeriodSeconds(_Period);
-   if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) return;
-   if(!intrabar && lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) return;
+   if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) { SetStatus("Waiting — intrabar entry cooldown"); return; }
+   if(!intrabar && lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) { SetStatus("Waiting — bar cooldown"); return; }
 
    MqlRates rates[];
    ArraySetAsSeries(rates,true);
    int count=CopyRates(_Symbol,_Period,0,360,rates);
-   if(count<MathMax(InpATRPeriod+10,80)) return;
+   if(count<MathMax(InpATRPeriod+10,80)) { SetStatus("Waiting — insufficient price history"); return; }
    int signalShift=intrabar ? 0 : 1;
    int priorShift=signalShift+1;
    int fvgShift=signalShift+2;
    double atr,entryEma,htfFast,htfSlow;
-   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) return;
+   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
    double htfClose=iClose(_Symbol,InpTrendTimeframe,1);
-   if(htfClose<=0.0) return;
+   if(htfClose<=0.0) { SetStatus("Waiting — H1 data loading"); return; }
    double relativeAtr=atr/rates[signalShift].close;
    double relativeAtrAverage=0.0;
    for(int i=1;i<=50;i++)
    {
       double atrAt;
-      if(!BufferValue(atrHandle,i,atrAt)) return;
+      if(!BufferValue(atrHandle,i,atrAt)) { SetStatus("Waiting — ATR data loading"); return; }
       relativeAtrAverage+=atrAt/rates[i].close;
    }
    relativeAtrAverage/=50.0;
-   if(relativeAtr<relativeAtrAverage*InpMinimumRelativeATR) return;
+   if(!InpBypassVolatilityFilter && relativeAtr<relativeAtrAverage*InpMinimumRelativeATR) { SetStatus("Waiting — volatility filter"); return; }
 
    UpdateAMDTarget();
    double swingHigh=LatestSwingHigh(rates,count);
@@ -378,27 +397,27 @@ void EvaluateEntry(const bool intrabar=false)
       longSignal=activationLong;
       shortSignal=activationShort;
    }
-   if(!longSignal && !amdShort && !shortSignal) return;
+   if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no qualifying direction or setup"); return; }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
    double stop=isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high);
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
-   if(risk<=_Point) return;
+   if(risk<=_Point) { SetStatus("Blocked — invalid stop distance"); return; }
    double volume=InpUseFixedLot ? NormalizeVolume(InpFixedLot) : RiskBasedVolume(entry,stop);
-   if(volume<=0.0) return;
+   if(volume<=0.0) { SetStatus("Blocked — lot minimum exceeds risk limit"); return; }
    double target=isBuy ? entry+risk*InpTP3R : (amdShort ? MathMin(amdTargetLow,entry-risk*InpTP3R) : entry-risk*InpTP3R);
    if(InpUseCashTakeProfit)
    {
       double cashDistance=CashPriceDistance(volume,InpTakeProfitUSD);
-      if(cashDistance<=0.0) return;
+      if(cashDistance<=0.0) { SetStatus("Blocked — cannot calculate cash target"); return; }
       target=isBuy ? entry+cashDistance : entry-cashDistance;
    }
    double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
-   if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) return;
+   if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) { SetStatus("Blocked — broker minimum stop distance"); return; }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
-   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) return;
+   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — total risk limit"); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
    permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
@@ -413,7 +432,9 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots");
       }
+      else SetStatus("Broker rejected order — see Experts tab");
    }
 }
 
