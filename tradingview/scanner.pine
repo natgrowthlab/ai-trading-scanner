@@ -72,6 +72,12 @@ if not na(higherPreviousTime) and higherPreviousTime != processedHigherTime
         if showAmdTarget
             amdTargetLine := line.new(bar_index, amdTargetLow, bar_index + 1, amdTargetLow, extend=extend.right, color=color.new(color.purple, 15), style=line.style_dashed, width=2)
 
+var label amdStatusLabel = na
+if barstate.islast
+    label.delete(amdStatusLabel)
+    statusText = amdTargetActive ? "AMD 4H TARGET: " + str.tostring(amdTargetLow) + "\nWaiting lower-TF bearish confirmation" : "AMD: waiting for a closed 4H candle without lower wick"
+    amdStatusLabel := label.new(bar_index, high, statusText, style=label.style_label_down, color=amdTargetActive ? color.purple : color.gray, textcolor=color.white, size=size.tiny)
+
 confirmationScore = (liquiditySweepHigh ? 1 : 0) + (bearishBreak ? 1 : 0) + (bearishFvg ? 1 : 0)
 var int lastSignalBar = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= cooldownBars
