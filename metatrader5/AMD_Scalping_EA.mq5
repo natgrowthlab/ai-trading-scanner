@@ -15,6 +15,11 @@ input int             InpSessionStartHour = 7;       // Broker server time
 input int             InpSessionEndHour = 17;        // Broker server time
 input int             InpMaxSpreadPoints = 30;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
+input bool            InpUseCashRisk = true;
+input double          InpMaxLossUSD = 0.50;
+input bool            InpUseCashTakeProfit = true;
+input double          InpTakeProfitUSD = 1.00;
+input bool            InpOpenOnActivation = false;   // Uses trend bias when no full setup is present
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 12;
@@ -169,13 +174,21 @@ double RiskBasedVolume(const double entry,const double stop)
 {
    double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
    double tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
-   double riskMoney=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0;
+   double riskMoney=InpUseCashRisk ? InpMaxLossUSD : AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0;
    if(tickSize<=0.0 || tickValue<=0.0 || riskMoney<=0.0) return(0.0);
    double lossPerLot=MathAbs(entry-stop)/tickSize*tickValue;
    if(lossPerLot<=0.0) return(0.0);
    double rawVolume=riskMoney/lossPerLot;
    if(rawVolume<SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN)) return(0.0);
    return(NormalizeVolume(rawVolume));
+}
+
+double CashPriceDistance(const double volume,const double cashAmount)
+{
+   double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   double tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
+   if(volume<=0.0 || cashAmount<=0.0 || tickSize<=0.0 || tickValue<=0.0) return(0.0);
+   return(cashAmount*tickSize/(volume*tickValue));
 }
 
 bool SpreadAllowed()
@@ -227,8 +240,9 @@ void ManageOpenPosition()
    if(!SymbolInfoTick(_Symbol,tick)) return;
    bool isBuy=type==POSITION_TYPE_BUY;
    double price=isBuy ? tick.bid : tick.ask;
-   double tp1=isBuy ? entry+risk*InpTP1R : entry-risk*InpTP1R;
-   double tp2=isBuy ? entry+risk*InpTP2R : entry-risk*InpTP2R;
+   double targetDistance=MathAbs(target-entry);
+   double tp1=isBuy ? entry+targetDistance/3.0 : entry-targetDistance/3.0;
+   double tp2=isBuy ? entry+targetDistance*2.0/3.0 : entry-targetDistance*2.0/3.0;
    if(!tp1Done && (isBuy ? price>=tp1 : price<=tp1))
    {
       ClosePartial(ticket,volume*0.33);
@@ -287,6 +301,13 @@ void EvaluateEntry()
    bool longSignal=trendLong && rates[1].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
    bool amdShort=InpEnableAMDShorts && amdTargetActive && rates[1].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
    bool shortSignal=trendShort && rates[1].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
+   bool activationLong=InpOpenOnActivation && trendLong && rates[1].close>entryEma;
+   bool activationShort=InpOpenOnActivation && trendShort && rates[1].close<entryEma;
+   if(!longSignal && !amdShort && !shortSignal)
+   {
+      longSignal=activationLong;
+      shortSignal=activationShort;
+   }
    if(!longSignal && !amdShort && !shortSignal) return;
 
    bool isBuy=longSignal;
@@ -295,11 +316,17 @@ void EvaluateEntry()
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) return;
-   double target=isBuy ? entry+risk*InpTP3R : (amdShort ? MathMin(amdTargetLow,entry-risk*InpTP3R) : entry-risk*InpTP3R);
-   double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
-   if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) return;
    double volume=RiskBasedVolume(entry,stop);
    if(volume<=0.0) return;
+   double target=isBuy ? entry+risk*InpTP3R : (amdShort ? MathMin(amdTargetLow,entry-risk*InpTP3R) : entry-risk*InpTP3R);
+   if(InpUseCashTakeProfit)
+   {
+      double cashDistance=CashPriceDistance(volume,InpTakeProfitUSD);
+      if(cashDistance<=0.0) return;
+      target=isBuy ? entry+cashDistance : entry-cashDistance;
+   }
+   double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
+   if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) return;
    bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
    if(sent && TradeResultOK())
    {
@@ -314,7 +341,14 @@ void OnTick()
 {
    ManageOpenPosition();
    datetime closedBar=iTime(_Symbol,_Period,1);
-   if(closedBar<=0 || closedBar==lastClosedBar) return;
+   if(closedBar<=0) return;
+   if(lastClosedBar==0)
+   {
+      lastClosedBar=closedBar;
+      EvaluateEntry();
+      return;
+   }
+   if(closedBar==lastClosedBar) return;
    lastClosedBar=closedBar;
    EvaluateEntry();
 }

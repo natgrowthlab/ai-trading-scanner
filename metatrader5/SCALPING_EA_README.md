@@ -10,6 +10,12 @@ AMD_Scalping_EA.mq5 is an Expert Advisor that can place and manage live orders. 
 - Sends a broker-side stop loss and TP3 with each trade.
 - On TP1 and TP2, attempts a 33% partial close and moves the stop to break-even.
 
+## Micro-target mode
+
+The default micro-target settings use `InpUseCashRisk=true`, `InpMaxLossUSD=0.50`, and `InpUseCashTakeProfit=true`, `InpTakeProfitUSD=1.00`. The EA calculates the target from the symbol's tick size/value and the actual order volume, so the desired gross target is approximately US$1 in a USD-denominated account. Broker commissions, spread, swaps, slippage, minimum-volume rules, and fill price mean neither a US$1 net profit nor any profit can be guaranteed.
+
+Set `InpOpenOnActivation=true` only in demo testing if you want it to take the first eligible trade based on the higher-timeframe trend instead of waiting for a complete structure setup. It still enforces session, spread, volatility, stop-distance and risk checks.
+
 ## Installation and testing
 
 1. Copy the source to MQL5/Experts/.
