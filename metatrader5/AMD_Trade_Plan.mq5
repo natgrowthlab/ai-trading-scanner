@@ -20,6 +20,8 @@ input bool   InpShowSessionLevels = false;
 input int    InpSessionStartHour = 0;
 input int    InpSessionEndHour = 24;
 input bool   InpTerminalAlerts = false;
+input int    InpHistoricalPlans = 3;
+input int    InpHistoricalPlanBars = 80;
 
 string prefix = "AMDTradePlan_";
 datetime lastProcessedBar = 0;
@@ -86,12 +88,39 @@ double LatestSwingLow(const double &low[],int count)
    return(0.0);
 }
 
+double HistoricalSwingHigh(const double &high[],int from,int count)
+{
+   int last=MathMin(count-InpSwingLeftBars-1,from+300);
+   for(int i=from+InpSwingRightBars+1;i<=last;i++) if(IsSwingHigh(high,i,count)) return(high[i]);
+   return(0.0);
+}
+
+double HistoricalSwingLow(const double &low[],int from,int count)
+{
+   int last=MathMin(count-InpSwingLeftBars-1,from+300);
+   for(int i=from+InpSwingRightBars+1;i<=last;i++) if(IsSwingLow(low,i,count)) return(low[i]);
+   return(0.0);
+}
+
 double AverageTrueRange(const double &high[],const double &low[],const double &close[],int count)
 {
    int bars=MathMin(InpATRPeriod,count-2);
    if(bars<=0) return(_Point*10.0);
    double total=0.0;
    for(int i=1;i<=bars;i++)
+   {
+      double previousClose=close[i+1];
+      total+=MathMax(high[i]-low[i],MathMax(MathAbs(high[i]-previousClose),MathAbs(low[i]-previousClose)));
+   }
+   return(total/bars);
+}
+
+double AverageTrueRangeAt(const double &high[],const double &low[],const double &close[],int count,int from)
+{
+   int bars=MathMin(InpATRPeriod,count-from-2);
+   if(bars<=0) return(_Point*10.0);
+   double total=0.0;
+   for(int i=from;i<from+bars;i++)
    {
       double previousClose=close[i+1];
       total+=MathMax(high[i]-low[i],MathMax(MathAbs(high[i]-previousClose),MathAbs(low[i]-previousClose)));
@@ -197,6 +226,54 @@ void StartPlan(datetime signalTime,double entry,double stop,double target,bool i
    if(InpTerminalAlerts) Alert(_Symbol+" "+(isLong ? "BUY" : "SELL")+" | Entry: "+DoubleToString(activeEntry,_Digits));
 }
 
+void DrawHistoricalPlan(datetime signalTime,double entry,double stop,double target,bool isLong)
+{
+   int seconds=PeriodSeconds(_Period);
+   datetime right=signalTime+(datetime)((seconds>0 ? seconds : 60)*InpHistoricalPlanBars);
+   string tag="H"+IntegerToString((int)signalTime);
+   double distance=MathAbs(target-entry);
+   double tp1=NormalizeDouble(isLong ? entry+distance/3.0 : entry-distance/3.0,_Digits);
+   double tp2=NormalizeDouble(isLong ? entry+distance*2.0/3.0 : entry-distance*2.0/3.0,_Digits);
+   SetRectangle(tag+"_profit",signalTime,MathMax(entry,target),right,MathMin(entry,target),clrDarkGreen);
+   SetRectangle(tag+"_stop",signalTime,MathMax(entry,stop),right,MathMin(entry,stop),clrMaroon);
+   SetLine(tag+"_entry",signalTime,entry,right,clrDeepSkyBlue,STYLE_SOLID);
+   SetLine(tag+"_tp1",signalTime,tp1,right,clrLime,STYLE_DASH);
+   SetLine(tag+"_tp2",signalTime,tp2,right,clrOrange,STYLE_DASH);
+   SetLine(tag+"_tp3",signalTime,target,right,clrMagenta,STYLE_DASH);
+   SetLine(tag+"_sl",signalTime,stop,right,clrRed,STYLE_DASH);
+   SetPriceLabel(tag+"_entry_text",right,entry,"ENTRY",clrDeepSkyBlue);
+   SetPriceLabel(tag+"_tp1_text",right,tp1,"TP1",clrLime);
+   SetPriceLabel(tag+"_tp2_text",right,tp2,"TP2",clrOrange);
+   SetPriceLabel(tag+"_tp3_text",right,target,"TP3",clrMagenta);
+   SetPriceLabel(tag+"_sl_text",right,stop,"SL",clrRed);
+   SetSignalLabel(tag+"_signal",signalTime,entry,isLong,isLong ? "BUY" : "SELL",isLong ? clrLime : clrTomato);
+}
+
+void DrawHistoricalPlans(const datetime &time[],const double &high[],const double &low[],const double &close[],int count)
+{
+   if(!InpStructureFallback || InpHistoricalPlans<=0) return;
+   int drawn=0;
+   int scanBars=MathMin(count-InpSwingLeftBars-2,500);
+   for(int shift=4;shift<=scanBars && drawn<InpHistoricalPlans;shift++)
+   {
+      double swingHigh=HistoricalSwingHigh(high,shift,count);
+      double swingLow=HistoricalSwingLow(low,shift,count);
+      bool isLong=swingHigh>0.0 && close[shift]>swingHigh && close[shift+1]<=swingHigh;
+      bool isShort=swingLow>0.0 && close[shift]<swingLow && close[shift+1]>=swingLow;
+      if(!isLong && !isShort) continue;
+      bool directionLong=isLong && !isShort;
+      double entry=close[shift];
+      double atr=AverageTrueRangeAt(high,low,close,count,shift);
+      double stop=directionLong ? MathMin(low[shift],swingLow>0.0 ? swingLow : low[shift]) : MathMax(high[shift],swingHigh>0.0 ? swingHigh : high[shift]);
+      stop=directionLong ? MathMin(stop,entry-atr*InpMinimumRiskATR) : MathMax(stop,entry+atr*InpMinimumRiskATR);
+      double risk=MathAbs(entry-stop);
+      if(risk<=_Point) continue;
+      double target=directionLong ? entry+risk*InpTargetRiskReward : entry-risk*InpTargetRiskReward;
+      DrawHistoricalPlan(time[shift],entry,stop,target,directionLong);
+      drawn++;
+   }
+}
+
 void UpdateActivePlan(datetime barTime,double high,double low)
 {
    if(activeDirection==0) return;
@@ -251,6 +328,7 @@ int OnCalculate(const int rates_total,const int prev_calculated,const datetime &
       SetStatusPanel();
       return(rates_total);
    }
+   if(prev_calculated==0) DrawHistoricalPlans(time,high,low,close,rates_total);
    if(time[1]==lastProcessedBar) return(rates_total);
    lastProcessedBar=time[1];
 
@@ -277,6 +355,8 @@ int OnCalculate(const int rates_total,const int prev_calculated,const datetime &
 
    double lastSwingHigh=LatestSwingHigh(high,rates_total);
    double lastSwingLow=LatestSwingLow(low,rates_total);
+   if(lastSwingHigh>0.0) SetLine("LAST_SWING_HIGH",time[1],lastSwingHigh,time[1]+(datetime)((seconds>0 ? seconds : 60)*100),clrTomato,STYLE_DOT,1);
+   if(lastSwingLow>0.0) SetLine("LAST_SWING_LOW",time[1],lastSwingLow,time[1]+(datetime)((seconds>0 ? seconds : 60)*100),clrLime,STYLE_DOT,1);
    bool bullishBreak=lastSwingHigh>0.0 && close[1]>lastSwingHigh && close[2]<=lastSwingHigh;
    bool bearishBreak=lastSwingLow>0.0 && close[1]<lastSwingLow && close[2]>=lastSwingLow;
    bool liquiditySweepHigh=lastSwingHigh>0.0 && high[1]>lastSwingHigh && close[1]<lastSwingHigh;
