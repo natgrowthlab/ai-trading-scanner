@@ -6,9 +6,13 @@
 
 1. In MT5 choose **File → Open Data Folder**.
 2. Copy `AMD_Trade_Plan.mq5` to `MQL5/Indicators/`.
-3. Open MetaEditor, compile the file, then attach **AMD Trade Plan MT5** to a 1m, 5m, or 1h chart.
+3. Open MetaEditor, compile the file, then attach **AI Trading Scanner · AMD** to a 1m, 5m, 1h, or 1D chart.
 
-The indicator always displays a status panel in the upper-left corner. It detects the 4H wickless-candle AMD target, uses lower-timeframe confirmation, and draws BUY/SELL, ENTRY, SL, TP1, TP2, and TP3. On first load it also draws the six most recent structural plans, so the chart does not remain blank while waiting for a new AMD confirmation.
+## TradingView parity
+
+This version mirrors the active TradingView script's inputs and behaviour: 4H wickless-candle AMD target, swing break, liquidity-sweep and bearish-FVG confirmation score, ATR stop floor, cooldown, optional session high/low, and the active BUY/SELL risk-reward plan. The active plan uses the same green target zone, red risk zone, blue entry line, TP1/TP2/TP3, SL, and outcome labels.
+
+It always displays an AMD status panel in the upper-left corner. MT5 terminal alerts can be enabled with `InpTerminalAlerts`; direct Telegram webhooks remain a TradingView-alert feature.
 
 ## Update an existing installation
 
