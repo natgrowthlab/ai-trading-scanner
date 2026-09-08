@@ -9,27 +9,27 @@
 input bool            InpEnableTrading = true;
 input ulong           InpMagicNumber = 26092026;
 input ENUM_TIMEFRAMES InpAMDTimeframe = PERIOD_H4;
-input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_H1;
+input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_M15;
 input bool            InpOnlyM1M5 = true;
-input int             InpSessionStartHour = 7;       // Broker server time
-input int             InpSessionEndHour = 17;        // Broker server time
+input int             InpSessionStartHour = 0;       // Broker server time
+input int             InpSessionEndHour = 23;        // Broker server time
 input int             InpMaxSpreadPoints = 200;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
-input double          InpMaxLossUSD = 1.50;
+input double          InpMaxLossUSD = 4.00;
 input bool            InpUseCashTakeProfit = true;
 input double          InpTakeProfitUSD = 3.00;
 input bool            InpOpenOnActivation = true;    // Uses trend bias when no full setup is present
 input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
-input int             InpMaxOpenPositions = 3;
-input int             InpOrdersPerSignal = 1;
-input int             InpMaxTradesPerDay = 12;
-input double          InpMaxTotalRiskUSD = 5.00;
-input double          InpMaxPerTradeRiskUSD = 5.00;
+input int             InpMaxOpenPositions = 5;
+input int             InpOrdersPerSignal = 2;
+input int             InpMaxTradesPerDay = 50;
+input double          InpMaxTotalRiskUSD = 200.00;
+input double          InpMaxPerTradeRiskUSD = 4.00;
 input double          InpMaxDailyLossUSD = 100.00;
 input bool            InpEvaluateEveryTick = true;
-input int             InpMinimumSecondsBetweenEntries = 15;
+input int             InpMinimumSecondsBetweenEntries = 5;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
@@ -76,7 +76,7 @@ void SetStatus(const string status)
 {
    lastStatus=status;
    if(!InpShowStatusPanel) return;
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nOpen risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily loss: $",DoubleToString(DailyRealizedLoss(),2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nGlobal daily loss: $",DoubleToString(DailyRealizedLoss(),2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -267,7 +267,7 @@ double TotalOpenRisk()
    {
       ulong ticket=PositionGetTicket(i);
       if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber) continue;
+      if((ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber) continue;
       risk+=RiskMoneyForVolume(PositionGetDouble(POSITION_PRICE_OPEN),PositionGetDouble(POSITION_SL),PositionGetDouble(POSITION_VOLUME));
    }
    return(risk);
@@ -288,7 +288,6 @@ double DailyRealizedLoss()
    {
       ulong deal=HistoryDealGetTicket(i);
       if(deal==0) continue;
-      if(HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol) continue;
       if((ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)!=InpMagicNumber) continue;
       long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
       if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
