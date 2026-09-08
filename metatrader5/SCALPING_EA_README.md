@@ -1,6 +1,6 @@
 # AMD Scalping EA for MetaTrader 5
 
-AMD_Scalping_EA.mq5 is an Expert Advisor that can place and manage live orders. It starts with InpEnableTrading=false. Keep it disabled until it has compiled and passed Strategy Tester and demo-account testing.
+AMD_Scalping_EA.mq5 is an Expert Advisor that can place and manage live orders. Its current defaults enable trading, tick evaluation, activation entries, fixed lot sizing, and volatility-filter bypass. Test it in Strategy Tester and a demo account before relying on it.
 
 ## What it does
 
@@ -37,7 +37,7 @@ Set `InpShowStatusPanel=true` to display the EA's current decision directly on t
 1. Copy the source to MQL5/Experts/.
 2. Compile in MetaEditor with F7.
 3. Run it first in View → Strategy Tester with the same symbol, 1m/5m data, and realistic spread/commission.
-4. Attach it to a demo chart, confirm Algo Trading is enabled, but leave InpEnableTrading=false while observing it.
-5. Only after validating the broker's symbol suffix, contract size, sessions, spread, and fills should you explicitly set InpEnableTrading=true.
+4. Attach it to a demo chart and confirm Algo Trading is enabled.
+5. Validate the broker's symbol suffix, contract size, sessions, spread, and fills before relying on automated execution.
 
 Partial closes depend on the broker account mode. The EA always submits broker-side SL and TP3; on account modes that do not support partial close, it will retain the remaining position through TP3 after moving its stop.

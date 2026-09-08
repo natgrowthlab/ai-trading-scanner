@@ -6,7 +6,7 @@
 
 // Expert Advisor based on the TradingView AMD Scalping Strategy.
 // Start with InpEnableTrading=false and test in the MT5 Strategy Tester / demo account.
-input bool            InpEnableTrading = false;
+input bool            InpEnableTrading = true;
 input ulong           InpMagicNumber = 26092026;
 input ENUM_TIMEFRAMES InpAMDTimeframe = PERIOD_H4;
 input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_H1;
@@ -19,8 +19,8 @@ input bool            InpUseCashRisk = true;
 input double          InpMaxLossUSD = 1.50;
 input bool            InpUseCashTakeProfit = true;
 input double          InpTakeProfitUSD = 3.00;
-input bool            InpOpenOnActivation = false;   // Uses trend bias when no full setup is present
-input bool            InpUseFixedLot = false;
+input bool            InpOpenOnActivation = true;    // Uses trend bias when no full setup is present
+input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
 input int             InpMaxOpenPositions = 3;
 input int             InpOrdersPerSignal = 1;
@@ -28,10 +28,10 @@ input int             InpMaxTradesPerDay = 12;
 input double          InpMaxTotalRiskUSD = 5.00;
 input double          InpMaxPerTradeRiskUSD = 5.00;
 input double          InpMaxDailyLossUSD = 100.00;
-input bool            InpEvaluateEveryTick = false;
+input bool            InpEvaluateEveryTick = true;
 input int             InpMinimumSecondsBetweenEntries = 15;
 input bool            InpShowStatusPanel = true;
-input bool            InpBypassVolatilityFilter = false;
+input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
