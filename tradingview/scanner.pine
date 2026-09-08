@@ -4,9 +4,11 @@ indicator("AI Trading Scanner", overlay=true, max_boxes_count=100, max_labels_co
 restrictTimeframes = input.bool(true, "Only run on 1m, 5m, 1h and 1D", group="Signals")
 leftBars = input.int(3, "Swing left bars", minval=1, group="Signals")
 rightBars = input.int(3, "Swing right bars", minval=1, group="Signals")
-fastEmaLength = input.int(20, "Fast EMA", minval=1, group="Signals")
-slowEmaLength = input.int(50, "Trend EMA", minval=2, group="Signals")
 cooldownBars = input.int(8, "Signal cooldown (bars)", minval=0, group="Signals")
+amdTimeframe = input.timeframe("240", "AMD reference timeframe", group="AMD wickless candle")
+wickToleranceTicks = input.int(0, "Wick tolerance (ticks)", minval=0, maxval=10, group="AMD wickless candle")
+minimumConfirmations = input.int(1, "Lower-timeframe confirmations", minval=1, maxval=3, group="AMD wickless candle")
+showAmdTarget = input.bool(true, "Show active 4H AMD target", group="AMD wickless candle")
 atrLength = input.int(14, "ATR length", minval=1, group="Trade plan")
 minimumRiskAtr = input.float(0.5, "Minimum stop distance (ATR)", minval=0.1, step=0.1, group="Trade plan")
 targetRiskReward = input.float(2.0, "Chart target (R)", minval=1.0, step=0.25, group="Trade plan")
@@ -18,8 +20,6 @@ telegramChatId = input.string("", "Telegram chat ID", group="Telegram direct", t
 supportedTimeframe = (timeframe.isminutes and (timeframe.multiplier == 1 or timeframe.multiplier == 5 or timeframe.multiplier == 60)) or timeframe.isdaily
 active = not restrictTimeframes or supportedTimeframe
 atr = ta.atr(atrLength)
-fastEma = ta.ema(close, fastEmaLength)
-slowEma = ta.ema(close, slowEmaLength)
 
 inSession = not na(time(timeframe.period, sessionInput, sessionTimezone))
 sessionStarted = inSession and not inSession[1]
@@ -51,14 +51,32 @@ if not na(swingHigh)
 if not na(swingLow)
     lastSwingLow := swingLow
 
-bullishBreak = active and not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
 bearishBreak = active and not na(lastSwingLow) and close < lastSwingLow and close[1] >= lastSwingLow
-trendBullish = fastEma > slowEma and close > fastEma
-trendBearish = fastEma < slowEma and close < fastEma
+liquiditySweepHigh = active and not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+bearishFvg = active and high < low[2]
+
+// AMD: a completed 4H candle with no lower wick leaves an imbalance target at its low.
+higherPreviousTime = request.security(syminfo.tickerid, amdTimeframe, time[1])
+higherPreviousLow = request.security(syminfo.tickerid, amdTimeframe, low[1])
+higherNoLowerWick = request.security(syminfo.tickerid, amdTimeframe, low[1] >= math.min(open[1], close[1]) - syminfo.mintick * wickToleranceTicks)
+var int processedHigherTime = na
+var float amdTargetLow = na
+var bool amdTargetActive = false
+var line amdTargetLine = na
+if not na(higherPreviousTime) and higherPreviousTime != processedHigherTime
+    processedHigherTime := higherPreviousTime
+    if higherNoLowerWick
+        amdTargetLow := higherPreviousLow
+        amdTargetActive := true
+        line.delete(amdTargetLine)
+        if showAmdTarget
+            amdTargetLine := line.new(bar_index, amdTargetLow, bar_index + 1, amdTargetLow, extend=extend.right, color=color.new(color.purple, 15), style=line.style_dashed, width=2)
+
+confirmationScore = (liquiditySweepHigh ? 1 : 0) + (bearishBreak ? 1 : 0) + (bearishFvg ? 1 : 0)
 var int lastSignalBar = na
 cooldownComplete = na(lastSignalBar) or bar_index - lastSignalBar >= cooldownBars
-longSignal = barstate.isconfirmed and bullishBreak and trendBullish and cooldownComplete
-shortSignal = barstate.isconfirmed and bearishBreak and trendBearish and cooldownComplete
+longSignal = false
+shortSignal = barstate.isconfirmed and amdTargetActive and close > amdTargetLow and confirmationScore >= minimumConfirmations and cooldownComplete
 
 // One clear risk/reward plan per signal: green target, red stop, blue entry.
 var int activeDirection = 0
@@ -78,7 +96,7 @@ if longSignal or shortSignal
     activeStop := activeDirection == 1 ? math.min(longStopCandidate, activeEntry - minimumDistance) : math.max(shortStopCandidate, activeEntry + minimumDistance)
     activeStop := math.round_to_mintick(activeStop)
     risk = math.abs(activeEntry - activeStop)
-    activeTarget := math.round_to_mintick(activeDirection == 1 ? activeEntry + risk * targetRiskReward : activeEntry - risk * targetRiskReward)
+    activeTarget := math.round_to_mintick(activeDirection == 1 ? activeEntry + risk * targetRiskReward : amdTargetLow)
     activeProfitBox := box.new(bar_index, math.max(activeEntry, activeTarget), bar_index + 1, math.min(activeEntry, activeTarget), border_color=color.new(color.lime, 50), bgcolor=color.new(color.lime, 88))
     activeStopBox := box.new(bar_index, math.max(activeEntry, activeStop), bar_index + 1, math.min(activeEntry, activeStop), border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 88))
     activeEntryLine := line.new(bar_index, activeEntry, bar_index + 1, activeEntry, color=color.blue, width=2)
@@ -95,6 +113,8 @@ if activeDirection != 0
     if longTargetHit or shortTargetHit
         label.new(bar_index, activeTarget, activeDirection == 1 ? "Long TP" : "Short TP", style=activeDirection == 1 ? label.style_label_down : label.style_label_up, color=color.purple, textcolor=color.white, size=size.small)
         activeDirection := 0
+        amdTargetActive := false
+        line.delete(amdTargetLine)
     else if longStopHit or shortStopHit
         label.new(bar_index, activeStop, activeDirection == 1 ? "Long SL" : "Short SL", style=activeDirection == 1 ? label.style_label_down : label.style_label_up, color=color.red, textcolor=color.white, size=size.small)
         activeDirection := 0
@@ -103,7 +123,7 @@ plotshape(longSignal, title="Long", text="LONG", style=shape.labelup, location=l
 plotshape(shortSignal, title="Short", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.tiny)
 
 // Direct Telegram delivery; set the Bot API URL only in TradingView's alert webhook field.
-telegramReasons = "SWING_BREAK,EMA_TREND"
+telegramReasons = "AMD_4H_WICKLESS,LOWER_TF_CONFIRMATION"
 if longSignal and telegramChatId != ""
     telegramRisk = math.abs(activeEntry - activeStop)
     longTp1 = math.round_to_mintick(activeEntry + telegramRisk)
