@@ -83,9 +83,18 @@ var int activeDirection = 0
 var float activeEntry = na
 var float activeStop = na
 var float activeTarget = na
+var float activeTp1 = na
+var float activeTp2 = na
+var float activeTp3 = na
 var box activeProfitBox = na
 var box activeStopBox = na
 var line activeEntryLine = na
+var line activeTp1Line = na
+var line activeTp2Line = na
+var line activeTp3Line = na
+var line activeStopLine = na
+var bool tp1Reached = false
+var bool tp2Reached = false
 if longSignal or shortSignal
     lastSignalBar := bar_index
     activeDirection := longSignal ? 1 : -1
@@ -97,19 +106,46 @@ if longSignal or shortSignal
     activeStop := math.round_to_mintick(activeStop)
     risk = math.abs(activeEntry - activeStop)
     activeTarget := math.round_to_mintick(activeDirection == 1 ? activeEntry + risk * targetRiskReward : amdTargetLow)
+    targetDistance = math.abs(activeTarget - activeEntry)
+    activeTp1 := math.round_to_mintick(activeDirection == 1 ? activeEntry + targetDistance / 3 : activeEntry - targetDistance / 3)
+    activeTp2 := math.round_to_mintick(activeDirection == 1 ? activeEntry + targetDistance * 2 / 3 : activeEntry - targetDistance * 2 / 3)
+    activeTp3 := activeTarget
+    tp1Reached := false
+    tp2Reached := false
     activeProfitBox := box.new(bar_index, math.max(activeEntry, activeTarget), bar_index + 1, math.min(activeEntry, activeTarget), border_color=color.new(color.lime, 50), bgcolor=color.new(color.lime, 88))
     activeStopBox := box.new(bar_index, math.max(activeEntry, activeStop), bar_index + 1, math.min(activeEntry, activeStop), border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 88))
     activeEntryLine := line.new(bar_index, activeEntry, bar_index + 1, activeEntry, color=color.blue, width=2)
+    activeTp1Line := line.new(bar_index, activeTp1, bar_index + 1, activeTp1, color=color.lime, style=line.style_dashed, width=2)
+    activeTp2Line := line.new(bar_index, activeTp2, bar_index + 1, activeTp2, color=color.orange, style=line.style_dashed, width=2)
+    activeTp3Line := line.new(bar_index, activeTp3, bar_index + 1, activeTp3, color=color.purple, style=line.style_dashed, width=2)
+    activeStopLine := line.new(bar_index, activeStop, bar_index + 1, activeStop, color=color.red, style=line.style_dashed, width=2)
+    label.new(bar_index + 1, activeEntry, "ENTRY\n" + str.tostring(activeEntry), style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.tiny)
+    label.new(bar_index + 1, activeTp1, "TP1\n" + str.tostring(activeTp1), style=label.style_label_left, color=color.lime, textcolor=color.white, size=size.tiny)
+    label.new(bar_index + 1, activeTp2, "TP2\n" + str.tostring(activeTp2), style=label.style_label_left, color=color.orange, textcolor=color.white, size=size.tiny)
+    label.new(bar_index + 1, activeTp3, "TP3\n" + str.tostring(activeTp3), style=label.style_label_left, color=color.purple, textcolor=color.white, size=size.tiny)
+    label.new(bar_index + 1, activeStop, "SL\n" + str.tostring(activeStop), style=label.style_label_left, color=color.red, textcolor=color.white, size=size.tiny)
     label.new(bar_index, activeEntry, activeDirection == 1 ? "BUY" : "SELL", style=activeDirection == 1 ? label.style_label_up : label.style_label_down, color=activeDirection == 1 ? color.green : color.red, textcolor=color.white, size=size.small)
 
 if activeDirection != 0
     box.set_right(activeProfitBox, bar_index)
     box.set_right(activeStopBox, bar_index)
     line.set_x2(activeEntryLine, bar_index)
+    line.set_x2(activeTp1Line, bar_index)
+    line.set_x2(activeTp2Line, bar_index)
+    line.set_x2(activeTp3Line, bar_index)
+    line.set_x2(activeStopLine, bar_index)
     longTargetHit = activeDirection == 1 and high >= activeTarget
     shortTargetHit = activeDirection == -1 and low <= activeTarget
     longStopHit = activeDirection == 1 and low <= activeStop
     shortStopHit = activeDirection == -1 and high >= activeStop
+    tp1Hit = activeDirection == 1 ? high >= activeTp1 : low <= activeTp1
+    tp2Hit = activeDirection == 1 ? high >= activeTp2 : low <= activeTp2
+    if tp1Hit and not tp1Reached
+        label.new(bar_index, activeTp1, "TP1 HIT", style=label.style_label_left, color=color.lime, textcolor=color.white, size=size.tiny)
+        tp1Reached := true
+    if tp2Hit and not tp2Reached
+        label.new(bar_index, activeTp2, "TP2 HIT", style=label.style_label_left, color=color.orange, textcolor=color.white, size=size.tiny)
+        tp2Reached := true
     if longTargetHit or shortTargetHit
         label.new(bar_index, activeTarget, activeDirection == 1 ? "Long TP" : "Short TP", style=activeDirection == 1 ? label.style_label_down : label.style_label_up, color=color.purple, textcolor=color.white, size=size.small)
         activeDirection := 0
