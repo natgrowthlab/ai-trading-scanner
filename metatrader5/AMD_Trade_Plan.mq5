@@ -37,9 +37,13 @@ string activeTag = "";
 double sessionHigh = 0.0, sessionLow = 0.0;
 int trackedSessionDay = -1;
 
+void SetStatusPanel();
+
 int OnInit()
 {
    IndicatorSetString(INDICATOR_SHORTNAME,"AI Trading Scanner · AMD");
+   SetStatusPanel();
+   ChartRedraw(0);
    return(INIT_SUCCEEDED);
 }
 
