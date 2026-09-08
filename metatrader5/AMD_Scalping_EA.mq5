@@ -20,9 +20,15 @@ input double          InpMaxLossUSD = 0.50;
 input bool            InpUseCashTakeProfit = true;
 input double          InpTakeProfitUSD = 1.00;
 input bool            InpOpenOnActivation = false;   // Uses trend bias when no full setup is present
+input bool            InpUseFixedLot = false;
+input double          InpFixedLot = 0.01;
+input int             InpMaxOpenPositions = 3;
+input int             InpOrdersPerSignal = 1;
+input int             InpMaxTradesPerDay = 12;
+input double          InpMaxTotalRiskUSD = 1.50;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
-input int             InpCooldownBars = 12;
+input int             InpCooldownBars = 1;
 input int             InpATRPeriod = 14;
 input double          InpMinRiskATR = 0.75;
 input int             InpEntryEMAPeriod = 20;
@@ -50,6 +56,8 @@ double amdTargetLow = 0.0;
 bool amdTargetActive = false;
 bool tp1Done = false;
 bool tp2Done = false;
+int tradesToday = 0;
+int trackedDayKey = -1;
 
 int OnInit()
 {
@@ -143,6 +151,37 @@ bool HasOwnPosition(ulong &ticket)
    return(false);
 }
 
+int OwnPositionCount()
+{
+   int count=0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol && (ulong)PositionGetInteger(POSITION_MAGIC)==InpMagicNumber) count++;
+   }
+   return(count);
+}
+
+int EffectiveMaxPositions()
+{
+   long mode=AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(mode!=ACCOUNT_MARGIN_MODE_RETAIL_HEDGING) return(1);
+   return(MathMax(1,InpMaxOpenPositions));
+}
+
+void RefreshTradeDay()
+{
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(),now);
+   int dayKey=now.year*1000+now.day_of_year;
+   if(dayKey!=trackedDayKey)
+   {
+      trackedDayKey=dayKey;
+      tradesToday=0;
+   }
+}
+
 bool TradeResultOK()
 {
    uint code=trade.ResultRetcode();
@@ -191,6 +230,27 @@ double CashPriceDistance(const double volume,const double cashAmount)
    return(cashAmount*tickSize/(volume*tickValue));
 }
 
+double RiskMoneyForVolume(const double entry,const double stop,const double volume)
+{
+   double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   double tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
+   if(tickSize<=0.0 || tickValue<=0.0 || volume<=0.0) return(0.0);
+   return(MathAbs(entry-stop)/tickSize*tickValue*volume);
+}
+
+double TotalOpenRisk()
+{
+   double risk=0.0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber) continue;
+      risk+=RiskMoneyForVolume(PositionGetDouble(POSITION_PRICE_OPEN),PositionGetDouble(POSITION_SL),PositionGetDouble(POSITION_VOLUME));
+   }
+   return(risk);
+}
+
 bool SpreadAllowed()
 {
    MqlTick tick;
@@ -227,6 +287,7 @@ bool ClosePartial(const ulong ticket,const double requestedVolume)
 
 void ManageOpenPosition()
 {
+   if(EffectiveMaxPositions()>1) return; // Each stacked position retains broker-side SL and TP3.
    ulong ticket;
    if(!HasOwnPosition(ticket) || !PositionSelectByTicket(ticket)) return;
    long type=PositionGetInteger(POSITION_TYPE);
@@ -261,8 +322,10 @@ void EvaluateEntry()
 {
    if(!InpEnableTrading || !IsScalpingTimeframe() || !InTradeSession() || !SpreadAllowed()) return;
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) return;
-   ulong ticket;
-   if(HasOwnPosition(ticket)) return;
+   RefreshTradeDay();
+   int maxPositions=EffectiveMaxPositions();
+   int openPositions=OwnPositionCount();
+   if(openPositions>=maxPositions || tradesToday>=InpMaxTradesPerDay) return;
    int seconds=PeriodSeconds(_Period);
    if(lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) return;
 
@@ -316,7 +379,7 @@ void EvaluateEntry()
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) return;
-   double volume=RiskBasedVolume(entry,stop);
+   double volume=InpUseFixedLot ? NormalizeVolume(InpFixedLot) : RiskBasedVolume(entry,stop);
    if(volume<=0.0) return;
    double target=isBuy ? entry+risk*InpTP3R : (amdShort ? MathMin(amdTargetLow,entry-risk*InpTP3R) : entry-risk*InpTP3R);
    if(InpUseCashTakeProfit)
@@ -327,13 +390,22 @@ void EvaluateEntry()
    }
    double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
    if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) return;
-   bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
-   if(sent && TradeResultOK())
+   double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
+   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) return;
+   int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
+   permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
+   for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
    {
-      lastSignalTime=rates[1].time;
-      tp1Done=false;
-      tp2Done=false;
-      Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
+      if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
+      bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
+      if(sent && TradeResultOK())
+      {
+         lastSignalTime=rates[1].time;
+         tradesToday++;
+         tp1Done=false;
+         tp2Done=false;
+         Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
+      }
    }
 }
 

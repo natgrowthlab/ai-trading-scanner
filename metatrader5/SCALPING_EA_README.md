@@ -16,6 +16,12 @@ The default micro-target settings use `InpUseCashRisk=true`, `InpMaxLossUSD=0.50
 
 Set `InpOpenOnActivation=true` only in demo testing if you want it to take the first eligible trade based on the higher-timeframe trend instead of waiting for a complete structure setup. It still enforces session, spread, volatility, stop-distance and risk checks.
 
+## Aggressive stacking mode
+
+For an aggressive configuration, enable `InpUseFixedLot` and set `InpFixedLot`, then configure `InpMaxOpenPositions`, `InpOrdersPerSignal`, `InpCooldownBars`, `InpMaxTradesPerDay`, and `InpMaxTotalRiskUSD`. The EA will never exceed those exposure limits. Use a hedging account for separate simultaneous positions; netting accounts aggregate positions by symbol and the EA intentionally limits them to one open position.
+
+When more than one position is allowed, every position retains its own broker-side SL and TP3. Automatic partial exits are intentionally skipped in stacked mode to avoid applying a partial close to the wrong position.
+
 ## Installation and testing
 
 1. Copy the source to MQL5/Experts/.
