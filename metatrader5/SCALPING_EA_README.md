@@ -32,6 +32,10 @@ Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 can
 
 Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. It also displays daily realised profit, daily realised loss, completed winner/loser counts, current equity drawdown, and maximum daily equity drawdown for the EA magic number. Drawdown is persisted per account, magic number, and broker-server day. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
 
+## On-chart controls
+
+The upper-right chart buttons **PAUSE BOT** and **RESUME BOT** control new entries without removing the EA. Pausing preserves any existing broker-side SL and TP; it simply prevents new orders. Resume requires that MT5 Algo Trading and `InpEnableTrading` remain enabled.
+
 ## Installation and testing
 
 1. Copy the source to MQL5/Experts/.

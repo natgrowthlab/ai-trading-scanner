@@ -66,6 +66,9 @@ bool tp2Done = false;
 int tradesToday = 0;
 int trackedDayKey = -1;
 string lastStatus = "Loading";
+bool runtimeTradingEnabled = true;
+string pauseButtonName = "AMDScalper_PAUSE";
+string resumeButtonName = "AMDScalper_RESUME";
 
 struct DailyStats
 {
@@ -89,6 +92,8 @@ double TotalOpenRisk();
 double DailyRealizedLoss();
 void GetDailyStats(DailyStats &stats);
 void GetDrawdownStats(DrawdownStats &stats);
+void CreateControlButtons();
+void DeleteControlButtons();
 
 void SetStatus(const string status)
 {
@@ -98,7 +103,7 @@ void SetStatus(const string status)
    DrawdownStats drawdown;
    GetDailyStats(stats);
    GetDrawdownStats(drawdown);
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   Comment("AMD Scalping EA\nBot: ",runtimeTradingEnabled ? "ACTIVE" : "PAUSED","\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -115,6 +120,8 @@ int OnInit()
       Print("Could not create indicator handles.");
       return(INIT_FAILED);
    }
+   runtimeTradingEnabled=InpEnableTrading;
+   CreateControlButtons();
    SetStatus(InpEnableTrading ? "Loaded — waiting for a price tick" : "Disabled — set InpEnableTrading=true");
    return(INIT_SUCCEEDED);
 }
@@ -125,7 +132,54 @@ void OnDeinit(const int reason)
    if(entryEmaHandle!=INVALID_HANDLE) IndicatorRelease(entryEmaHandle);
    if(htfFastHandle!=INVALID_HANDLE) IndicatorRelease(htfFastHandle);
    if(htfSlowHandle!=INVALID_HANDLE) IndicatorRelease(htfSlowHandle);
+   DeleteControlButtons();
    if(InpShowStatusPanel) Comment("");
+}
+
+void CreateButton(const string name,const string text,const int y,color background)
+{
+   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_BUTTON,0,0,0);
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,12);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   ObjectSetInteger(0,name,OBJPROP_XSIZE,104);
+   ObjectSetInteger(0,name,OBJPROP_YSIZE,24);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clrWhite);
+   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
+   ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,clrWhite);
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,9);
+   ObjectSetString(0,name,OBJPROP_TEXT,text);
+}
+
+void CreateControlButtons()
+{
+   CreateButton(pauseButtonName,"PAUSE BOT",14,clrFireBrick);
+   CreateButton(resumeButtonName,"RESUME BOT",44,clrForestGreen);
+}
+
+void DeleteControlButtons()
+{
+   ObjectDelete(0,pauseButtonName);
+   ObjectDelete(0,resumeButtonName);
+}
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+{
+   if(id!=CHARTEVENT_OBJECT_CLICK) return;
+   if(sparam==pauseButtonName)
+   {
+      runtimeTradingEnabled=false;
+      SetStatus("Paused from chart control — open positions remain protected");
+   }
+   else if(sparam==resumeButtonName)
+   {
+      if(!InpEnableTrading) SetStatus("Cannot resume — InpEnableTrading is false");
+      else
+      {
+         runtimeTradingEnabled=true;
+         SetStatus("Resumed from chart control — waiting for opportunity");
+      }
+   }
 }
 
 bool BufferValue(const int handle,const int shift,double &value)
@@ -463,6 +517,7 @@ void ManageOpenPosition()
 void EvaluateEntry(const bool intrabar=false)
 {
    if(!InpEnableTrading) { SetStatus("Disabled — set InpEnableTrading=true"); return; }
+   if(!runtimeTradingEnabled) { SetStatus("Paused from chart control"); return; }
    if(!IsScalpingTimeframe()) { SetStatus("Blocked — attach to M1 or M5"); return; }
    if(!InTradeSession()) { SetStatus("Waiting — outside broker session"); return; }
    if(!SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
