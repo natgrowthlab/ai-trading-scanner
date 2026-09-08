@@ -75,19 +75,30 @@ struct DailyStats
    int losers;
 };
 
+struct DrawdownStats
+{
+   double current;
+   double currentPercent;
+   double maximum;
+   double maximumPercent;
+};
+
 int OwnPositionCount();
 int EffectiveMaxPositions();
 double TotalOpenRisk();
 double DailyRealizedLoss();
 void GetDailyStats(DailyStats &stats);
+void GetDrawdownStats(DrawdownStats &stats);
 
 void SetStatus(const string status)
 {
    lastStatus=status;
    if(!InpShowStatusPanel) return;
    DailyStats stats;
+   DrawdownStats drawdown;
    GetDailyStats(stats);
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   GetDrawdownStats(drawdown);
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -348,6 +359,40 @@ double DailyRealizedLoss()
    return(stats.loss);
 }
 
+string DrawdownKey(const string suffix)
+{
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(),now);
+   int dayKey=now.year*10000+now.mon*100+now.day;
+   return("AMDScalperDD_"+IntegerToString((int)AccountInfoInteger(ACCOUNT_LOGIN))+"_"+IntegerToString((int)InpMagicNumber)+"_"+IntegerToString(dayKey)+"_"+suffix);
+}
+
+void GetDrawdownStats(DrawdownStats &stats)
+{
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   string peakKey=DrawdownKey("peak");
+   string maxKey=DrawdownKey("max");
+   double peak=GlobalVariableCheck(peakKey) ? GlobalVariableGet(peakKey) : equity;
+   double maximum=GlobalVariableCheck(maxKey) ? GlobalVariableGet(maxKey) : 0.0;
+   if(equity>peak)
+   {
+      peak=equity;
+      GlobalVariableSet(peakKey,peak);
+   }
+   else if(!GlobalVariableCheck(peakKey)) GlobalVariableSet(peakKey,peak);
+   double current=MathMax(0.0,peak-equity);
+   if(current>maximum)
+   {
+      maximum=current;
+      GlobalVariableSet(maxKey,maximum);
+   }
+   else if(!GlobalVariableCheck(maxKey)) GlobalVariableSet(maxKey,maximum);
+   stats.current=current;
+   stats.currentPercent=peak>0.0 ? current/peak*100.0 : 0.0;
+   stats.maximum=maximum;
+   stats.maximumPercent=peak>0.0 ? maximum/peak*100.0 : 0.0;
+}
+
 bool SpreadAllowed()
 {
    MqlTick tick;
@@ -522,6 +567,7 @@ void EvaluateEntry(const bool intrabar=false)
 void OnTick()
 {
    ManageOpenPosition();
+   SetStatus(lastStatus);
    if(InpEvaluateEveryTick)
    {
       EvaluateEntry(true);
