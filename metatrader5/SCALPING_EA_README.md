@@ -30,7 +30,7 @@ Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 can
 
 ## Status panel and troubleshooting
 
-Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
+Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. It also displays daily realised profit, daily realised loss, and completed winner/loser counts for the EA magic number. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
 
 ## Installation and testing
 

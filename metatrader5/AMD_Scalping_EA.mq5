@@ -67,16 +67,27 @@ int tradesToday = 0;
 int trackedDayKey = -1;
 string lastStatus = "Loading";
 
+struct DailyStats
+{
+   double profit;
+   double loss;
+   int winners;
+   int losers;
+};
+
 int OwnPositionCount();
 int EffectiveMaxPositions();
 double TotalOpenRisk();
 double DailyRealizedLoss();
+void GetDailyStats(DailyStats &stats);
 
 void SetStatus(const string status)
 {
    lastStatus=status;
    if(!InpShowStatusPanel) return;
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nGlobal daily loss: $",DoubleToString(DailyRealizedLoss(),2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   DailyStats stats;
+   GetDailyStats(stats);
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -273,28 +284,68 @@ double TotalOpenRisk()
    return(risk);
 }
 
-double DailyRealizedLoss()
+bool PositionIdentifierIsOpen(const long identifier)
+{
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if((long)PositionGetInteger(POSITION_IDENTIFIER)==identifier) return(true);
+   }
+   return(false);
+}
+
+void GetDailyStats(DailyStats &stats)
 {
    MqlDateTime day;
    TimeToStruct(TimeCurrent(),day);
    day.hour=0;
    day.min=0;
    day.sec=0;
-   datetime startOfDay=StructToTime(day);
-   if(!HistorySelect(startOfDay,TimeCurrent())) return(0.0);
-   double loss=0.0;
+   stats.profit=0.0;
+   stats.loss=0.0;
+   stats.winners=0;
+   stats.losers=0;
+   if(!HistorySelect(StructToTime(day),TimeCurrent())) return;
+   long positionIds[];
+   double positionNet[];
+   int positionCount=0;
    uint dealCount=HistoryDealsTotal();
    for(uint i=0;i<dealCount;i++)
    {
       ulong deal=HistoryDealGetTicket(i);
-      if(deal==0) continue;
-      if((ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)!=InpMagicNumber) continue;
+      if(deal==0 || (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)!=InpMagicNumber) continue;
       long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
       if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) continue;
       double net=HistoryDealGetDouble(deal,DEAL_PROFIT)+HistoryDealGetDouble(deal,DEAL_COMMISSION)+HistoryDealGetDouble(deal,DEAL_SWAP);
-      if(net<0.0) loss-=net;
+      if(net>=0.0) stats.profit+=net; else stats.loss-=net;
+      long positionId=(long)HistoryDealGetInteger(deal,DEAL_POSITION_ID);
+      int index=-1;
+      for(int n=0;n<positionCount;n++) if(positionIds[n]==positionId) { index=n; break; }
+      if(index<0)
+      {
+         ArrayResize(positionIds,positionCount+1);
+         ArrayResize(positionNet,positionCount+1);
+         index=positionCount;
+         positionIds[index]=positionId;
+         positionNet[index]=0.0;
+         positionCount++;
+      }
+      positionNet[index]+=net;
    }
-   return(loss);
+   for(int i=0;i<positionCount;i++)
+   {
+      if(PositionIdentifierIsOpen(positionIds[i])) continue;
+      if(positionNet[i]>0.0) stats.winners++;
+      if(positionNet[i]<0.0) stats.losers++;
+   }
+}
+
+double DailyRealizedLoss()
+{
+   DailyStats stats;
+   GetDailyStats(stats);
+   return(stats.loss);
 }
 
 bool SpreadAllowed()
