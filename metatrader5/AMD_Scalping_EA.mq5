@@ -67,12 +67,13 @@ string lastStatus = "Loading";
 
 int OwnPositionCount();
 int EffectiveMaxPositions();
+double TotalOpenRisk();
 
 void SetStatus(const string status)
 {
    lastStatus=status;
    if(!InpShowStatusPanel) return;
-   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   Comment("AMD Scalping EA\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nOpen positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nOpen risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nTrades today: ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
 }
 
 int OnInit()
@@ -417,7 +418,7 @@ void EvaluateEntry(const bool intrabar=false)
    double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
    if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) { SetStatus("Blocked — broker minimum stop distance"); return; }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
-   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — total risk limit"); return; }
+   if(tradeRisk<=0.0 || TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
    permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
