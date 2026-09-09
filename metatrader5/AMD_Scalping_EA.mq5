@@ -6,7 +6,7 @@
 
 // Expert Advisor based on the TradingView AMD Scalping Strategy.
 // Test in the MT5 Strategy Tester / demo account before using a live account.
-input bool            InpEnableTrading = true;
+input bool            InpEnableTrading = false;     // Enable only after Strategy Tester / demo validation
 input ulong           InpMagicNumber = 26092026;
 input ENUM_TIMEFRAMES InpAMDTimeframe = PERIOD_H4;
 input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_M15;
@@ -14,34 +14,34 @@ input bool            InpOnlyM1M5 = true;
 input int             InpSessionStartHour = 0;       // Broker server time
 input int             InpSessionEndHour = 23;        // Broker server time
 input int             InpMaxSpreadPoints = 200;
-input bool            InpIgnoreSpreadFilter = true;  // Spread remains a real cost; this only removes the entry block
+input bool            InpIgnoreSpreadFilter = false;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
-input double          InpMaxLossUSD = 4.00;
+input double          InpMaxLossUSD = 1.50;
 input bool            InpUseCashTakeProfit = true;
 input double          InpTakeProfitUSD = 3.00;
-input bool            InpOpenOnActivation = true;    // Uses trend bias when no full setup is present
+input bool            InpOpenOnActivation = false;   // Require a confirmed pullback setup
 input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
-input int             InpMaxOpenPositions = 5;
-input int             InpOrdersPerSignal = 2;
-input int             InpMaxTradesPerDay = 0;        // 0 = unlimited; loss and risk limits still apply
-input double          InpMaxTotalRiskUSD = 200.00;
-input double          InpMaxPerTradeRiskUSD = 4.00;
-input double          InpMaxDailyLossUSD = 100.00;
-input bool            InpEvaluateEveryTick = true;
-input int             InpMinimumSecondsBetweenEntries = 5;
-input int             InpReentryCooldownSeconds = 3;
-input int             InpMaxHoldSeconds = 120;
+input int             InpMaxOpenPositions = 1;
+input int             InpOrdersPerSignal = 1;
+input int             InpMaxTradesPerDay = 10;
+input double          InpMaxTotalRiskUSD = 4.00;
+input double          InpMaxPerTradeRiskUSD = 1.50;
+input double          InpMaxDailyLossUSD = 10.00;
+input bool            InpEvaluateEveryTick = false;
+input int             InpMinimumSecondsBetweenEntries = 60;
+input int             InpReentryCooldownSeconds = 60;
+input int             InpMaxHoldSeconds = 900;
 input bool            InpExitOnMicroReversal = true;
-input double          InpFastLossExitUSD = 1.50;
-input double          InpBreakEvenTriggerUSD = 0.01; // Move SL to entry as soon as the position is positive
-input bool            InpUseFastDirectionFallback = true;
-input bool            InpUseCandleDirectionEntries = true; // Permit rapid entries in the live candle direction
-input bool            InpCandleDirectionOverridesBias = true; // In tick scalping, live candle decides BUY vs SELL
-input bool            InpExitOnLosingCandleFlip = true;
+input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit
+input double          InpBreakEvenTriggerUSD = 1.00;
+input bool            InpUseFastDirectionFallback = false;
+input bool            InpUseCandleDirectionEntries = false;
+input bool            InpCandleDirectionOverridesBias = false;
+input bool            InpExitOnLosingCandleFlip = false;
 input bool            InpShowStatusPanel = true;
-input bool            InpBypassVolatilityFilter = true;
+input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
@@ -56,10 +56,10 @@ input int             InpMinimumStructureConfirmations = 1;
 input int             InpMinimumAMDConfirmations = 2;
 input bool            InpEnableLongs = true;
 input bool            InpEnableShorts = true;
-input bool            InpEnableAMDShorts = true;
+input bool            InpEnableAMDShorts = false;
 input double          InpTP1R = 1.0;
 input double          InpTP2R = 1.5;
-input double          InpTP3R = 2.0;
+input double          InpTP3R = 1.5;
 input ulong           InpDeviationPoints = 20;
 
 CTrade trade;
@@ -610,60 +610,25 @@ void EvaluateEntry(const bool intrabar=false)
    relativeAtrAverage/=50.0;
    if(!InpBypassVolatilityFilter && relativeAtr<relativeAtrAverage*InpMinimumRelativeATR) { SetStatus("Waiting — volatility filter"); return; }
 
-   UpdateAMDTarget();
    double swingHigh=LatestSwingHigh(rates,count);
    double swingLow=LatestSwingLow(rates,count);
-   bool bullishBreak=swingHigh>0.0 && rates[signalShift].close>swingHigh && rates[priorShift].close<=swingHigh;
-   bool bearishBreak=swingLow>0.0 && rates[signalShift].close<swingLow && rates[priorShift].close>=swingLow;
-   bool sweepLow=swingLow>0.0 && rates[signalShift].low<swingLow && rates[signalShift].close>swingLow;
-   bool sweepHigh=swingHigh>0.0 && rates[signalShift].high>swingHigh && rates[signalShift].close<swingHigh;
-   bool bullishFvg=rates[signalShift].low>rates[fvgShift].high;
-   bool bearishFvg=rates[signalShift].high<rates[fvgShift].low;
-   int longScore=(sweepLow ? 1 : 0)+(bullishFvg ? 1 : 0);
-   int shortScore=(sweepHigh ? 1 : 0)+(bearishFvg ? 1 : 0);
    bool trendLong=htfClose>htfFast && htfFast>htfSlow;
    bool trendShort=htfClose<htfFast && htfFast<htfSlow;
    bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
    bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
    bool candleLong=rates[signalShift].close>rates[signalShift].open;
    bool candleShort=rates[signalShift].close<rates[signalShift].open;
-   bool longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
-   bool amdShort=InpEnableShorts && InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
-   bool shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
-   bool activationLong=InpEnableLongs && InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong) || (InpUseCandleDirectionEntries && candleLong));
-   bool activationShort=InpEnableShorts && InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort) || (InpUseCandleDirectionEntries && candleShort));
-   bool usedCandleDirection=false;
-   if(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias && (candleLong || candleShort))
-   {
-      // Deliberately bypasses the higher-timeframe bias for a seconds/minutes scalp.
-      // This makes the two directions mutually exclusive and prevents a persistent BUY bias.
-      longSignal=InpEnableLongs && candleLong;
-      shortSignal=InpEnableShorts && candleShort;
-      amdShort=false;
-      usedCandleDirection=true;
-   }
-   else if(!longSignal && !amdShort && !shortSignal)
-   {
-      longSignal=activationLong;
-      shortSignal=activationShort;
-   }
-   if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no qualifying direction or setup"); return; }
+   bool longPullback=candleLong && rates[signalShift].low<=entryEma && rates[signalShift].close>entryEma;
+   bool shortPullback=candleShort && rates[signalShift].high>=entryEma && rates[signalShift].close<entryEma;
+   bool longCross=candleLong && rates[priorShift].close<=previousEntryEma && rates[signalShift].close>entryEma;
+   bool shortCross=candleShort && rates[priorShift].close>=previousEntryEma && rates[signalShift].close<entryEma;
 
-   // A higher-timeframe BUY bias and a live bearish candle can otherwise be true at the
-   // same time. Resolve the conflict using the live candle, rather than always choosing BUY.
-   if(longSignal && (shortSignal || amdShort))
-   {
-      if(candleShort)
-      {
-         longSignal=false;
-         shortSignal=true;
-      }
-      else
-      {
-         shortSignal=false;
-         amdShort=false;
-      }
-   }
+   // Closed-candle trend pullback: the same symmetric rule is used for BUY and SELL.
+   bool longSignal=InpEnableLongs && trendLong && fastTrendLong && (longPullback || longCross);
+   bool shortSignal=InpEnableShorts && trendShort && fastTrendShort && (shortPullback || shortCross);
+   bool amdShort=false;
+   bool usedCandleDirection=false;
+   if(!longSignal && !shortSignal) { SetStatus("Waiting — no confirmed trend pullback"); return; }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
@@ -699,7 +664,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — structure direction"));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — confirmed trend pullback"));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }
