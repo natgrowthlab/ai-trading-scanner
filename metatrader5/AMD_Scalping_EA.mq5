@@ -25,7 +25,7 @@ input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
 input int             InpMaxOpenPositions = 5;
 input int             InpOrdersPerSignal = 2;
-input int             InpMaxTradesPerDay = 50;
+input int             InpMaxTradesPerDay = 0;        // 0 = unlimited; loss and risk limits still apply
 input double          InpMaxTotalRiskUSD = 200.00;
 input double          InpMaxPerTradeRiskUSD = 4.00;
 input double          InpMaxDailyLossUSD = 100.00;
@@ -35,7 +35,7 @@ input int             InpReentryCooldownSeconds = 3;
 input int             InpMaxHoldSeconds = 120;
 input bool            InpExitOnMicroReversal = true;
 input double          InpFastLossExitUSD = 1.50;
-input double          InpBreakEvenTriggerUSD = 1.00;
+input double          InpBreakEvenTriggerUSD = 0.01; // Move SL to entry as soon as the position is positive
 input bool            InpUseFastDirectionFallback = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
@@ -51,7 +51,9 @@ input double          InpMinimumRelativeATR = 0.80;
 input int             InpWickToleranceTicks = 0;
 input int             InpMinimumStructureConfirmations = 1;
 input int             InpMinimumAMDConfirmations = 2;
-input bool            InpEnableAMDShorts = false;
+input bool            InpEnableLongs = true;
+input bool            InpEnableShorts = true;
+input bool            InpEnableAMDShorts = true;
 input double          InpTP1R = 1.0;
 input double          InpTP2R = 1.5;
 input double          InpTP3R = 2.0;
@@ -111,7 +113,8 @@ void SetStatus(const string status)
    DrawdownStats drawdown;
    GetDailyStats(stats);
    GetDrawdownStats(drawdown);
-   Comment("AMD Scalping EA\nBot: ",runtimeTradingEnabled ? "ACTIVE" : "PAUSED","\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",IntegerToString(InpMaxTradesPerDay));
+   string tradeCap=InpMaxTradesPerDay<=0 ? "unlimited" : IntegerToString(InpMaxTradesPerDay);
+   Comment("AMD Scalping EA\nBot: ",runtimeTradingEnabled ? "ACTIVE" : "PAUSED","\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",tradeCap);
 }
 
 int OnInit()
@@ -573,7 +576,7 @@ void EvaluateEntry(const bool intrabar=false)
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
    if(openPositions>=maxPositions) { SetStatus("Waiting — maximum open positions reached"); return; }
-   if(tradesToday>=InpMaxTradesPerDay) { SetStatus("Waiting — daily trade limit reached"); return; }
+   if(InpMaxTradesPerDay>0 && tradesToday>=InpMaxTradesPerDay) { SetStatus("Waiting — daily trade limit reached"); return; }
    int seconds=PeriodSeconds(_Period);
    if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) { SetStatus("Waiting — intrabar entry cooldown"); return; }
    if(intrabar && lastExitTime>0 && TimeCurrent()-lastExitTime<InpReentryCooldownSeconds) { SetStatus("Waiting — rapid re-entry cooldown"); return; }
@@ -616,11 +619,11 @@ void EvaluateEntry(const bool intrabar=false)
    bool trendShort=htfClose<htfFast && htfFast<htfSlow;
    bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
    bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
-   bool longSignal=trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
-   bool amdShort=InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
-   bool shortSignal=trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
-   bool activationLong=InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong));
-   bool activationShort=InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort));
+   bool longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
+   bool amdShort=InpEnableShorts && InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
+   bool shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
+   bool activationLong=InpEnableLongs && InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong));
+   bool activationShort=InpEnableShorts && InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort));
    if(!longSignal && !amdShort && !shortSignal)
    {
       longSignal=activationLong;
@@ -649,7 +652,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(tradeRisk<=0.0 || tradeRisk>InpMaxPerTradeRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds per-trade limit $"+DoubleToString(InpMaxPerTradeRiskUSD,2)); return; }
    if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
-   permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
+   if(InpMaxTradesPerDay>0) permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
    {
       if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
