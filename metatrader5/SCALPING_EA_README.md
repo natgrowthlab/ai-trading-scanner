@@ -4,16 +4,16 @@
 
 ## Entry logic
 
-The EA runs only on M1 or M5 and evaluates the last closed candle. A BUY requires an M15 bullish EMA trend, a rising entry EMA, and a confirmed bullish pullback or cross of that EMA. A SELL uses the exact mirrored conditions: M15 bearish trend, falling entry EMA, and a confirmed bearish pullback or cross. It does not trade simply because the current candle changes colour.
+The EA runs only on M1 or M5 and evaluates the last closed candle. A BUY requires price above the M15 trend EMA, a rising entry EMA, and a confirmed bullish pullback, EMA cross, or one-bar momentum break. A SELL uses the exact mirrored conditions below the M15 trend EMA. It does not trade simply because the current candle changes colour.
 
-This approach intentionally produces fewer trades. A `Waiting — no confirmed trend pullback` message is normal and is preferable to entering without a defined setup.
+This balanced approach intentionally avoids arbitrary tick entries but is less restrictive than the first pullback-only version. A `Waiting — no confirmed trend setup` message is normal when neither direction is confirmed.
 
 ## Default safety limits
 
 - One position and one order per signal.
-- Maximum 10 entries per broker-server day.
+- Maximum 20 entries per broker-server day.
 - Spread filter enabled at 200 points. Spread, commission and slippage remain real trading costs.
-- Calculated risk cap: US$1.50 per trade and US$4 open risk.
+- Calculated risk cap: US$1.50 per trade and US$4 open risk. The stop is based on the completed signal candle plus a small ATR buffer, not a distant historical swing.
 - Daily realised-loss limit: US$10.
 - Broker-side stop loss and target on every order; default cash target is approximately US$3, subject to the broker's tick value and costs.
 - Break-even is attempted after US$1 floating profit. Minimum stop-distance rules set by the broker can delay that move.

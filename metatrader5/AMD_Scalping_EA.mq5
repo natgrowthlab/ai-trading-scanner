@@ -25,7 +25,7 @@ input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
 input int             InpMaxOpenPositions = 1;
 input int             InpOrdersPerSignal = 1;
-input int             InpMaxTradesPerDay = 10;
+input int             InpMaxTradesPerDay = 20;
 input double          InpMaxTotalRiskUSD = 4.00;
 input double          InpMaxPerTradeRiskUSD = 1.50;
 input double          InpMaxDailyLossUSD = 10.00;
@@ -41,12 +41,12 @@ input bool            InpUseCandleDirectionEntries = false;
 input bool            InpCandleDirectionOverridesBias = false;
 input bool            InpExitOnLosingCandleFlip = false;
 input bool            InpShowStatusPanel = true;
-input bool            InpBypassVolatilityFilter = false;
+input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
 input int             InpATRPeriod = 14;
-input double          InpMinRiskATR = 0.75;
+input double          InpMinRiskATR = 0.25;
 input int             InpEntryEMAPeriod = 20;
 input int             InpHTFFastEMAPeriod = 50;
 input int             InpHTFSlowEMAPeriod = 200;
@@ -594,7 +594,6 @@ void EvaluateEntry(const bool intrabar=false)
    if(count<MathMax(InpATRPeriod+10,80)) { SetStatus("Waiting — insufficient price history"); return; }
    int signalShift=intrabar ? 0 : 1;
    int priorShift=signalShift+1;
-   int fvgShift=signalShift+2;
    double atr,entryEma,previousEntryEma,htfFast,htfSlow;
    if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(entryEmaHandle,priorShift,previousEntryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
    double htfClose=iClose(_Symbol,InpTrendTimeframe,1);
@@ -610,10 +609,8 @@ void EvaluateEntry(const bool intrabar=false)
    relativeAtrAverage/=50.0;
    if(!InpBypassVolatilityFilter && relativeAtr<relativeAtrAverage*InpMinimumRelativeATR) { SetStatus("Waiting — volatility filter"); return; }
 
-   double swingHigh=LatestSwingHigh(rates,count);
-   double swingLow=LatestSwingLow(rates,count);
-   bool trendLong=htfClose>htfFast && htfFast>htfSlow;
-   bool trendShort=htfClose<htfFast && htfFast<htfSlow;
+   bool trendLong=htfClose>htfFast;
+   bool trendShort=htfClose<htfFast;
    bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
    bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
    bool candleLong=rates[signalShift].close>rates[signalShift].open;
@@ -622,17 +619,19 @@ void EvaluateEntry(const bool intrabar=false)
    bool shortPullback=candleShort && rates[signalShift].high>=entryEma && rates[signalShift].close<entryEma;
    bool longCross=candleLong && rates[priorShift].close<=previousEntryEma && rates[signalShift].close>entryEma;
    bool shortCross=candleShort && rates[priorShift].close>=previousEntryEma && rates[signalShift].close<entryEma;
+   bool longMomentum=candleLong && rates[signalShift].close>rates[priorShift].high && rates[signalShift].close>entryEma;
+   bool shortMomentum=candleShort && rates[signalShift].close<rates[priorShift].low && rates[signalShift].close<entryEma;
 
-   // Closed-candle trend pullback: the same symmetric rule is used for BUY and SELL.
-   bool longSignal=InpEnableLongs && trendLong && fastTrendLong && (longPullback || longCross);
-   bool shortSignal=InpEnableShorts && trendShort && fastTrendShort && (shortPullback || shortCross);
+   // Closed-candle trend entry: symmetrical pullback, cross, or one-bar momentum confirmation.
+   bool longSignal=InpEnableLongs && trendLong && fastTrendLong && (longPullback || longCross || longMomentum);
+   bool shortSignal=InpEnableShorts && trendShort && fastTrendShort && (shortPullback || shortCross || shortMomentum);
    bool amdShort=false;
    bool usedCandleDirection=false;
-   if(!longSignal && !shortSignal) { SetStatus("Waiting — no confirmed trend pullback"); return; }
+   if(!longSignal && !shortSignal) { SetStatus("Waiting — no confirmed trend setup"); return; }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double stop=isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high);
+   double stop=isBuy ? rates[signalShift].low : rates[signalShift].high;
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) { SetStatus("Blocked — invalid stop distance"); return; }
