@@ -38,6 +38,8 @@ input double          InpFastLossExitUSD = 1.50;
 input double          InpBreakEvenTriggerUSD = 0.01; // Move SL to entry as soon as the position is positive
 input bool            InpUseFastDirectionFallback = true;
 input bool            InpUseCandleDirectionEntries = true; // Permit rapid entries in the live candle direction
+input bool            InpCandleDirectionOverridesBias = true; // In tick scalping, live candle decides BUY vs SELL
+input bool            InpExitOnLosingCandleFlip = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
@@ -523,9 +525,12 @@ void ManageOpenPosition()
       bool lossExit=InpFastLossExitUSD>0.0 && profit<=-InpFastLossExitUSD;
       bool reversalExit=InpExitOnMicroReversal && emaReady &&
                         (isBuy ? (price<entryEma && entryEma<previousEntryEma) : (price>entryEma && entryEma>previousEntryEma));
-      if(timeExit || lossExit || reversalExit)
+      double candleOpen=iOpen(_Symbol,_Period,0);
+      bool candleFlipExit=InpExitOnLosingCandleFlip && profit<0.0 && candleOpen>0.0 &&
+                          (isBuy ? price<candleOpen : price>candleOpen);
+      if(timeExit || lossExit || reversalExit || candleFlipExit)
       {
-         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (profit>0.0 ? "dynamic profit exit" : "micro reversal"));
+         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (candleFlipExit ? "losing candle flip" : (profit>0.0 ? "dynamic profit exit" : "micro reversal")));
          bool sent=trade.PositionClose(ticket);
          if(sent && TradeResultOK())
          {
@@ -627,7 +632,17 @@ void EvaluateEntry(const bool intrabar=false)
    bool shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
    bool activationLong=InpEnableLongs && InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong) || (InpUseCandleDirectionEntries && candleLong));
    bool activationShort=InpEnableShorts && InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort) || (InpUseCandleDirectionEntries && candleShort));
-   if(!longSignal && !amdShort && !shortSignal)
+   bool usedCandleDirection=false;
+   if(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias && (candleLong || candleShort))
+   {
+      // Deliberately bypasses the higher-timeframe bias for a seconds/minutes scalp.
+      // This makes the two directions mutually exclusive and prevents a persistent BUY bias.
+      longSignal=InpEnableLongs && candleLong;
+      shortSignal=InpEnableShorts && candleShort;
+      amdShort=false;
+      usedCandleDirection=true;
+   }
+   else if(!longSignal && !amdShort && !shortSignal)
    {
       longSignal=activationLong;
       shortSignal=activationShort;
@@ -684,7 +699,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots");
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — structure direction"));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }
