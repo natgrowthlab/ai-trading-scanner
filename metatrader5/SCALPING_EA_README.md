@@ -30,6 +30,8 @@ Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 can
 
 When `InpOpenOnActivation=true`, `InpUseFastDirectionFallback=true` allows an immediate intrabar fallback when the M15 trend is neutral: price must be above a rising entry EMA for a BUY or below a falling entry EMA for a SELL. It is symmetric for both directions and produces more entries, but is less selective than the higher-timeframe setup.
 
+`InpUseCandleDirectionEntries=true` is enabled by default for rapid scalping. A live green candle can activate a BUY and a live red candle can activate a SELL, even when the higher-timeframe bias is opposite. If both directions become eligible on one tick, the EA now follows the live candle direction instead of defaulting to BUY. This materially increases counter-trend trades, so test it with the broker's real costs before using it live.
+
 ## Rapid exit and re-entry mode
 
 Each position is managed independently, including stacked hedging positions. The default rapid controls are: `InpMaxHoldSeconds=120`, `InpFastLossExitUSD=1.50`, `InpBreakEvenTriggerUSD=0.01`, and `InpReentryCooldownSeconds=3`. The EA closes a position when it reaches its maximum hold time, reaches the fast-loss amount, or reverses through the entry EMA while the EMA is turning against it. As soon as floating profit is positive, it repeatedly attempts to move the broker-side stop to the entry price; the broker's minimum stop-distance rules can delay that change. It then evaluates another signal after the re-entry cooldown.

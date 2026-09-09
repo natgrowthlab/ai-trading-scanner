@@ -37,6 +37,7 @@ input bool            InpExitOnMicroReversal = true;
 input double          InpFastLossExitUSD = 1.50;
 input double          InpBreakEvenTriggerUSD = 0.01; // Move SL to entry as soon as the position is positive
 input bool            InpUseFastDirectionFallback = true;
+input bool            InpUseCandleDirectionEntries = true; // Permit rapid entries in the live candle direction
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
@@ -619,17 +620,35 @@ void EvaluateEntry(const bool intrabar=false)
    bool trendShort=htfClose<htfFast && htfFast<htfSlow;
    bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
    bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
+   bool candleLong=rates[signalShift].close>rates[signalShift].open;
+   bool candleShort=rates[signalShift].close<rates[signalShift].open;
    bool longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
    bool amdShort=InpEnableShorts && InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
    bool shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
-   bool activationLong=InpEnableLongs && InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong));
-   bool activationShort=InpEnableShorts && InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort));
+   bool activationLong=InpEnableLongs && InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong) || (InpUseCandleDirectionEntries && candleLong));
+   bool activationShort=InpEnableShorts && InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort) || (InpUseCandleDirectionEntries && candleShort));
    if(!longSignal && !amdShort && !shortSignal)
    {
       longSignal=activationLong;
       shortSignal=activationShort;
    }
    if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no qualifying direction or setup"); return; }
+
+   // A higher-timeframe BUY bias and a live bearish candle can otherwise be true at the
+   // same time. Resolve the conflict using the live candle, rather than always choosing BUY.
+   if(longSignal && (shortSignal || amdShort))
+   {
+      if(candleShort)
+      {
+         longSignal=false;
+         shortSignal=true;
+      }
+      else
+      {
+         shortSignal=false;
+         amdShort=false;
+      }
+   }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
