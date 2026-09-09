@@ -5,7 +5,7 @@
 #include <Trade\Trade.mqh>
 
 // Expert Advisor based on the TradingView AMD Scalping Strategy.
-// Start with InpEnableTrading=false and test in the MT5 Strategy Tester / demo account.
+// Test in the MT5 Strategy Tester / demo account before using a live account.
 input bool            InpEnableTrading = true;
 input ulong           InpMagicNumber = 26092026;
 input ENUM_TIMEFRAMES InpAMDTimeframe = PERIOD_H4;
@@ -14,6 +14,7 @@ input bool            InpOnlyM1M5 = true;
 input int             InpSessionStartHour = 0;       // Broker server time
 input int             InpSessionEndHour = 23;        // Broker server time
 input int             InpMaxSpreadPoints = 200;
+input bool            InpIgnoreSpreadFilter = true;  // Spread remains a real cost; this only removes the entry block
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
 input double          InpMaxLossUSD = 4.00;
@@ -30,6 +31,11 @@ input double          InpMaxPerTradeRiskUSD = 4.00;
 input double          InpMaxDailyLossUSD = 100.00;
 input bool            InpEvaluateEveryTick = true;
 input int             InpMinimumSecondsBetweenEntries = 5;
+input int             InpReentryCooldownSeconds = 3;
+input int             InpMaxHoldSeconds = 120;
+input bool            InpExitOnMicroReversal = true;
+input double          InpFastLossExitUSD = 1.50;
+input double          InpBreakEvenTriggerUSD = 1.00;
 input bool            InpUseFastDirectionFallback = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
@@ -59,6 +65,7 @@ int htfSlowHandle = INVALID_HANDLE;
 datetime lastClosedBar = 0;
 datetime lastSignalTime = 0;
 datetime lastEntryTime = 0;
+datetime lastExitTime = 0;
 datetime processedH4Time = 0;
 double amdTargetLow = 0.0;
 bool amdTargetActive = false;
@@ -484,34 +491,72 @@ bool ClosePartial(const ulong ticket,const double requestedVolume)
 
 void ManageOpenPosition()
 {
-   if(EffectiveMaxPositions()>1) return; // Each stacked position retains broker-side SL and TP3.
-   ulong ticket;
-   if(!HasOwnPosition(ticket) || !PositionSelectByTicket(ticket)) return;
-   long type=PositionGetInteger(POSITION_TYPE);
-   double entry=PositionGetDouble(POSITION_PRICE_OPEN);
-   double stop=PositionGetDouble(POSITION_SL);
-   double target=PositionGetDouble(POSITION_TP);
-   double volume=PositionGetDouble(POSITION_VOLUME);
-   double risk=MathAbs(entry-stop);
-   if(risk<=_Point) return;
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol,tick)) return;
-   bool isBuy=type==POSITION_TYPE_BUY;
-   double price=isBuy ? tick.bid : tick.ask;
-   double targetDistance=MathAbs(target-entry);
-   double tp1=isBuy ? entry+targetDistance/3.0 : entry-targetDistance/3.0;
-   double tp2=isBuy ? entry+targetDistance*2.0/3.0 : entry-targetDistance*2.0/3.0;
-   if(!tp1Done && (isBuy ? price>=tp1 : price<=tp1))
+   double entryEma=0.0;
+   double previousEntryEma=0.0;
+   bool emaReady=BufferValue(entryEmaHandle,0,entryEma) && BufferValue(entryEmaHandle,1,previousEntryEma);
+
+   // Iterate in reverse because a close can change the positions collection.
+   for(int i=PositionsTotal()-1;i>=0;i--)
    {
-      ClosePartial(ticket,volume*0.33);
-      trade.PositionModify(ticket,entry,target);
-      tp1Done=true;
-   }
-   if(!tp2Done && (isBuy ? price>=tp2 : price<=tp2))
-   {
-      ClosePartial(ticket,volume*0.33);
-      trade.PositionModify(ticket,entry,target);
-      tp2Done=true;
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol || (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber) continue;
+
+      long type=PositionGetInteger(POSITION_TYPE);
+      bool isBuy=type==POSITION_TYPE_BUY;
+      double entry=PositionGetDouble(POSITION_PRICE_OPEN);
+      double stop=PositionGetDouble(POSITION_SL);
+      double target=PositionGetDouble(POSITION_TP);
+      double volume=PositionGetDouble(POSITION_VOLUME);
+      double price=isBuy ? tick.bid : tick.ask;
+      double profit=PositionGetDouble(POSITION_PROFIT);
+      datetime openedAt=(datetime)PositionGetInteger(POSITION_TIME);
+      int heldSeconds=(int)(TimeCurrent()-openedAt);
+
+      bool timeExit=InpMaxHoldSeconds>0 && heldSeconds>=InpMaxHoldSeconds;
+      bool lossExit=InpFastLossExitUSD>0.0 && profit<=-InpFastLossExitUSD;
+      bool reversalExit=InpExitOnMicroReversal && emaReady &&
+                        (isBuy ? (price<entryEma && entryEma<previousEntryEma) : (price>entryEma && entryEma>previousEntryEma));
+      if(timeExit || lossExit || reversalExit)
+      {
+         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (profit>0.0 ? "dynamic profit exit" : "micro reversal"));
+         bool sent=trade.PositionClose(ticket);
+         if(sent && TradeResultOK())
+         {
+            lastExitTime=TimeCurrent();
+            SetStatus("CLOSED "+(isBuy ? "BUY" : "SELL")+" — "+reason+"; re-entry may be evaluated after cooldown");
+         }
+         continue;
+      }
+
+      // Once a rapid trade has made enough, remove price risk while its broker-side TP remains active.
+      if(InpBreakEvenTriggerUSD>0.0 && profit>=InpBreakEvenTriggerUSD)
+      {
+         bool improvesStop=(isBuy && (stop==0.0 || entry>stop+_Point)) || (!isBuy && (stop==0.0 || entry<stop-_Point));
+         if(improvesStop) trade.PositionModify(ticket,NormalizeDouble(entry,_Digits),target);
+      }
+
+      // Partial targets are only safe when a single net position is used.
+      if(EffectiveMaxPositions()>1) continue;
+      double risk=MathAbs(entry-stop);
+      if(risk<=_Point || target<=0.0) continue;
+      double targetDistance=MathAbs(target-entry);
+      double tp1=isBuy ? entry+targetDistance/3.0 : entry-targetDistance/3.0;
+      double tp2=isBuy ? entry+targetDistance*2.0/3.0 : entry-targetDistance*2.0/3.0;
+      if(!tp1Done && (isBuy ? price>=tp1 : price<=tp1))
+      {
+         ClosePartial(ticket,volume*0.33);
+         trade.PositionModify(ticket,entry,target);
+         tp1Done=true;
+      }
+      if(!tp2Done && (isBuy ? price>=tp2 : price<=tp2))
+      {
+         ClosePartial(ticket,volume*0.33);
+         trade.PositionModify(ticket,entry,target);
+         tp2Done=true;
+      }
    }
 }
 
@@ -521,7 +566,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(!runtimeTradingEnabled) { SetStatus("Paused from chart control"); return; }
    if(!IsScalpingTimeframe()) { SetStatus("Blocked — attach to M1 or M5"); return; }
    if(!InTradeSession()) { SetStatus("Waiting — outside broker session"); return; }
-   if(!SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
+   if(!InpIgnoreSpreadFilter && !SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) { SetStatus("Blocked — Algo Trading permission is off"); return; }
    RefreshTradeDay();
    if(DailyRealizedLoss()>=InpMaxDailyLossUSD) { SetStatus("Blocked — daily loss limit reached"); return; }
@@ -531,6 +576,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(tradesToday>=InpMaxTradesPerDay) { SetStatus("Waiting — daily trade limit reached"); return; }
    int seconds=PeriodSeconds(_Period);
    if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) { SetStatus("Waiting — intrabar entry cooldown"); return; }
+   if(intrabar && lastExitTime>0 && TimeCurrent()-lastExitTime<InpReentryCooldownSeconds) { SetStatus("Waiting — rapid re-entry cooldown"); return; }
    if(!intrabar && lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) { SetStatus("Waiting — bar cooldown"); return; }
 
    MqlRates rates[];

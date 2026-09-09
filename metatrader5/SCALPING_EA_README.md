@@ -4,7 +4,7 @@ AMD_Scalping_EA.mq5 is an Expert Advisor that can place and manage live orders. 
 
 ## What it does
 
-- Evaluates new closed 1m or 5m bars only.
+- Evaluates the forming 1m or 5m candle on every tick by default, so it can enter without waiting for a candle close.
 - Uses the same broad filters as the TradingView scalping strategy: H1 EMA trend, broker-server session (default 07:00–17:00), relative ATR, swing break, FVG/liquidity sweep, and optional AMD 4H shorts.
 - Calculates lot size from InpRiskPercent (default 0.25% of equity) and the actual stop distance.
 - Sends a broker-side stop loss and TP3 with each trade.
@@ -14,7 +14,7 @@ AMD_Scalping_EA.mq5 is an Expert Advisor that can place and manage live orders. 
 
 The default cash settings use `InpUseCashRisk=true`, `InpMaxLossUSD=4.00`, and `InpUseCashTakeProfit=true`, `InpTakeProfitUSD=3.00`. The EA calculates the target from the symbol's tick size/value and the actual order volume, so the desired gross target is approximately US$3 in a USD-denominated account. Broker commissions, spread, swaps, slippage, minimum-volume rules, and fill price mean neither a US$3 net profit nor any profit can be guaranteed.
 
-The defaults use a 200-point spread cap, five maximum open positions per symbol, two orders per valid signal, US$200 maximum global open risk, US$4 hard cap for the calculated risk of one trade, and a US$100 realized-loss limit for the current broker-server day. Global risk and daily loss aggregate every symbol traded by the same EA magic number.
+The defaults ignore the spread *entry filter* (`InpIgnoreSpreadFilter=true`), allow five maximum open positions per symbol, submit two orders per valid signal, use a US$200 maximum global open risk, a US$4 hard cap for the calculated risk of one trade, and a US$100 realized-loss limit for the current broker-server day. Spread, commission and slippage still affect realised P/L; removing the filter does not remove those costs. Global risk and daily loss aggregate every symbol traded by the same EA magic number.
 
 Set `InpOpenOnActivation=true` only in demo testing if you want it to take the first eligible trade based on the higher-timeframe trend instead of waiting for a complete structure setup. It still enforces session, spread, volatility, stop-distance and risk checks.
 
@@ -30,9 +30,15 @@ Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 can
 
 When `InpOpenOnActivation=true`, `InpUseFastDirectionFallback=true` allows an immediate intrabar fallback when the M15 trend is neutral: price must be above a rising entry EMA for a BUY or below a falling entry EMA for a SELL. It is symmetric for both directions and produces more entries, but is less selective than the higher-timeframe setup.
 
+## Rapid exit and re-entry mode
+
+Each position is managed independently, including stacked hedging positions. The default rapid controls are: `InpMaxHoldSeconds=120`, `InpFastLossExitUSD=1.50`, `InpBreakEvenTriggerUSD=1.00`, and `InpReentryCooldownSeconds=3`. The EA closes a position when it reaches its maximum hold time, reaches the fast-loss amount, or reverses through the entry EMA while the EMA is turning against it. Once its floating profit reaches the break-even trigger, it moves the broker-side stop to the entry price. It then evaluates another signal after the re-entry cooldown.
+
+This is not loss recovery and it never raises the lot after a loss. Re-entering quickly can increase trading costs and losses in choppy markets; keep the daily, per-trade and total-risk limits enabled and validate the settings in the Strategy Tester and a demo account before real trading.
+
 ## Status panel and troubleshooting
 
-Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. It also displays daily realised profit, daily realised loss, completed winner/loser counts, current equity drawdown, and maximum daily equity drawdown for the EA magic number. Drawdown is persisted per account, magic number, and broker-server day. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
+Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, a rapid exit occurred, or a broker request is rejected. It also displays daily realised profit, daily realised loss, completed winner/loser counts, current equity drawdown, and maximum daily equity drawdown for the EA magic number. Drawdown is persisted per account, magic number, and broker-server day. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, stop-distance, position or risk limits.
 
 ## On-chart controls
 
