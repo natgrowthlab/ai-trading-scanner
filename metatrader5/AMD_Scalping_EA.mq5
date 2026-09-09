@@ -30,6 +30,7 @@ input double          InpMaxPerTradeRiskUSD = 4.00;
 input double          InpMaxDailyLossUSD = 100.00;
 input bool            InpEvaluateEveryTick = true;
 input int             InpMinimumSecondsBetweenEntries = 5;
+input bool            InpUseFastDirectionFallback = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = true;
 input int             InpSwingLeftBars = 3;
@@ -539,8 +540,8 @@ void EvaluateEntry(const bool intrabar=false)
    int signalShift=intrabar ? 0 : 1;
    int priorShift=signalShift+1;
    int fvgShift=signalShift+2;
-   double atr,entryEma,htfFast,htfSlow;
-   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
+   double atr,entryEma,previousEntryEma,htfFast,htfSlow;
+   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(entryEmaHandle,priorShift,previousEntryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
    double htfClose=iClose(_Symbol,InpTrendTimeframe,1);
    if(htfClose<=0.0) { SetStatus("Waiting — H1 data loading"); return; }
    double relativeAtr=atr/rates[signalShift].close;
@@ -567,11 +568,13 @@ void EvaluateEntry(const bool intrabar=false)
    int shortScore=(sweepHigh ? 1 : 0)+(bearishFvg ? 1 : 0);
    bool trendLong=htfClose>htfFast && htfFast>htfSlow;
    bool trendShort=htfClose<htfFast && htfFast<htfSlow;
+   bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
+   bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
    bool longSignal=trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
    bool amdShort=InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
    bool shortSignal=trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
-   bool activationLong=InpOpenOnActivation && trendLong && rates[signalShift].close>entryEma;
-   bool activationShort=InpOpenOnActivation && trendShort && rates[signalShift].close<entryEma;
+   bool activationLong=InpOpenOnActivation && ((trendLong && rates[signalShift].close>entryEma) || (InpUseFastDirectionFallback && fastTrendLong));
+   bool activationShort=InpOpenOnActivation && ((trendShort && rates[signalShift].close<entryEma) || (InpUseFastDirectionFallback && fastTrendShort));
    if(!longSignal && !amdShort && !shortSignal)
    {
       longSignal=activationLong;

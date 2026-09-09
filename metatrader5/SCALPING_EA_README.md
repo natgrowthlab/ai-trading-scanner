@@ -28,6 +28,8 @@ When more than one position is allowed, every position retains its own broker-si
 
 Set `InpEvaluateEveryTick=true` to evaluate the current, still-forming M1/M5 candle on every price tick rather than waiting for its close. `InpMinimumSecondsBetweenEntries` limits repeated intrabar entries. This mode can enter within seconds when a price crosses a qualifying level, but intrabar conditions can disappear before candle close and are materially less reliable than closed-bar confirmation.
 
+When `InpOpenOnActivation=true`, `InpUseFastDirectionFallback=true` allows an immediate intrabar fallback when the M15 trend is neutral: price must be above a rising entry EMA for a BUY or below a falling entry EMA for a SELL. It is symmetric for both directions and produces more entries, but is less selective than the higher-timeframe setup.
+
 ## Status panel and troubleshooting
 
 Set `InpShowStatusPanel=true` to display the EA's current decision directly on the chart. It reports whether trading is disabled, a session/spread/volatility filter is blocking, position or risk limits are reached, history is loading, no setup qualifies, or a broker request is rejected. It also displays daily realised profit, daily realised loss, completed winner/loser counts, current equity drawdown, and maximum daily equity drawdown for the EA magic number. Drawdown is persisted per account, magic number, and broker-server day. `InpBypassVolatilityFilter=true` removes only the relative-ATR gate for aggressive demo testing; it does not bypass session, spread, stop-distance, position or risk limits.
