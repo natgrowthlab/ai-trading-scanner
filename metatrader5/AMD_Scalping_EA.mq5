@@ -6,15 +6,16 @@
 
 // Expert Advisor based on the TradingView AMD Scalping Strategy.
 // Test in the MT5 Strategy Tester / demo account before using a live account.
-input bool            InpEnableTrading = false;     // Enable only after Strategy Tester / demo validation
+input bool            InpEnableTrading = true;      // On/off is controlled from the chart buttons
 input ulong           InpMagicNumber = 26092026;
 input ENUM_TIMEFRAMES InpAMDTimeframe = PERIOD_H4;
 input ENUM_TIMEFRAMES InpTrendTimeframe = PERIOD_M15;
 input bool            InpOnlyM1M5 = true;
+input bool            InpTradeAllHours = true;       // Still subject to the broker's symbol availability
 input int             InpSessionStartHour = 0;       // Broker server time
 input int             InpSessionEndHour = 23;        // Broker server time
 input int             InpMaxSpreadPoints = 200;
-input bool            InpIgnoreSpreadFilter = false;
+input bool            InpIgnoreSpreadFilter = true;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
 input double          InpMaxLossUSD = 1.50;
@@ -23,16 +24,16 @@ input double          InpTakeProfitUSD = 3.00;
 input bool            InpOpenOnActivation = false;   // Require a confirmed pullback setup
 input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
-input int             InpMaxOpenPositions = 1;
+input int             InpMaxOpenPositions = 0;       // 0 = no EA position cap (hedging accounts)
 input int             InpOrdersPerSignal = 1;
-input int             InpMaxTradesPerDay = 20;
-input double          InpMaxTotalRiskUSD = 4.00;
-input double          InpMaxPerTradeRiskUSD = 1.50;
-input double          InpMaxDailyLossUSD = 10.00;
+input int             InpMaxTradesPerDay = 0;        // 0 = no EA daily entry cap
+input double          InpMaxTotalRiskUSD = 0.00;      // 0 = no EA open-risk cap
+input double          InpMaxPerTradeRiskUSD = 0.00;   // 0 = no EA per-trade risk cap
+input double          InpMaxDailyLossUSD = 0.00;      // 0 = no EA daily-loss cap
 input bool            InpEvaluateEveryTick = false;
 input int             InpMinimumSecondsBetweenEntries = 60;
 input int             InpReentryCooldownSeconds = 60;
-input int             InpMaxHoldSeconds = 900;
+input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
 input bool            InpExitOnMicroReversal = true;
 input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit
 input double          InpBreakEvenTriggerUSD = 1.00;
@@ -117,7 +118,11 @@ void SetStatus(const string status)
    GetDailyStats(stats);
    GetDrawdownStats(drawdown);
    string tradeCap=InpMaxTradesPerDay<=0 ? "unlimited" : IntegerToString(InpMaxTradesPerDay);
-   Comment("AMD Scalping EA\nBot: ",runtimeTradingEnabled ? "ACTIVE" : "PAUSED","\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",IntegerToString(EffectiveMaxPositions()),"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / $",DoubleToString(InpMaxTotalRiskUSD,2),"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / $",DoubleToString(InpMaxDailyLossUSD,2),"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",tradeCap);
+   bool isHedging=AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
+   string positionCap=InpMaxOpenPositions<=0 ? (isHedging ? "unlimited" : "1 (broker netting)") : IntegerToString(EffectiveMaxPositions());
+   string riskCap=InpMaxTotalRiskUSD<=0.0 ? "unlimited" : "$"+DoubleToString(InpMaxTotalRiskUSD,2);
+   string lossCap=InpMaxDailyLossUSD<=0.0 ? "unlimited" : "$"+DoubleToString(InpMaxDailyLossUSD,2);
+   Comment("AMD Scalping EA\nBot: ",runtimeTradingEnabled ? "ACTIVE" : "PAUSED","\n",status,"\nSymbol: ",_Symbol,"  TF: ",EnumToString(_Period),"\nSymbol positions: ",IntegerToString(OwnPositionCount())," / ",positionCap,"\nGlobal open risk: $",DoubleToString(TotalOpenRisk(),2)," / ",riskCap,"\nDaily profit: $",DoubleToString(stats.profit,2),"  |  Daily loss: $",DoubleToString(stats.loss,2)," / ",lossCap,"\nWinners: ",IntegerToString(stats.winners),"  |  Losers: ",IntegerToString(stats.losers),"\nCurrent DD: $",DoubleToString(drawdown.current,2)," (",DoubleToString(drawdown.currentPercent,2),"%)  |  Max DD: $",DoubleToString(drawdown.maximum,2)," (",DoubleToString(drawdown.maximumPercent,2),"%)\nTrades today (symbol): ",IntegerToString(tradesToday)," / ",tradeCap);
 }
 
 int OnInit()
@@ -236,6 +241,7 @@ double LatestSwingLow(const MqlRates &rates[],const int count)
 
 bool InTradeSession()
 {
+   if(InpTradeAllHours) return(true);
    MqlDateTime now;
    TimeToStruct(TimeCurrent(),now);
    if(InpSessionStartHour<=InpSessionEndHour) return(now.hour>=InpSessionStartHour && now.hour<InpSessionEndHour);
@@ -279,6 +285,7 @@ int EffectiveMaxPositions()
 {
    long mode=AccountInfoInteger(ACCOUNT_MARGIN_MODE);
    if(mode!=ACCOUNT_MARGIN_MODE_RETAIL_HEDGING) return(1);
+   if(InpMaxOpenPositions<=0) return(1000); // No EA cap; broker margin and platform limits still apply.
    return(MathMax(1,InpMaxOpenPositions));
 }
 
@@ -578,7 +585,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(!InpIgnoreSpreadFilter && !SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) { SetStatus("Blocked — Algo Trading permission is off"); return; }
    RefreshTradeDay();
-   if(DailyRealizedLoss()>=InpMaxDailyLossUSD) { SetStatus("Blocked — daily loss limit reached"); return; }
+   if(InpMaxDailyLossUSD>0.0 && DailyRealizedLoss()>=InpMaxDailyLossUSD) { SetStatus("Blocked — daily loss limit reached"); return; }
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
    if(openPositions>=maxPositions) { SetStatus("Waiting — maximum open positions reached"); return; }
@@ -647,13 +654,13 @@ void EvaluateEntry(const bool intrabar=false)
    double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
    if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) { SetStatus("Blocked — broker minimum stop distance"); return; }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
-   if(tradeRisk<=0.0 || tradeRisk>InpMaxPerTradeRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds per-trade limit $"+DoubleToString(InpMaxPerTradeRiskUSD,2)); return; }
-   if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
+   if(tradeRisk<=0.0 || (InpMaxPerTradeRiskUSD>0.0 && tradeRisk>InpMaxPerTradeRiskUSD)) { SetStatus("Blocked — invalid or capped trade risk $"+DoubleToString(tradeRisk,2)); return; }
+   if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
    if(InpMaxTradesPerDay>0) permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
    {
-      if(TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
+      if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
       bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
       if(sent && TradeResultOK())
       {
