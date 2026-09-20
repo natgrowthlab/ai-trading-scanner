@@ -15,7 +15,7 @@ This balanced approach intentionally avoids arbitrary tick entries but is less r
 - `InpMaxOpenPositions=0`, `InpMaxTradesPerDay=0`, `InpMaxTotalRiskUSD=0`, `InpMaxPerTradeRiskUSD=0`, and `InpMaxDailyLossUSD=0`: no EA entry, position, open-risk, per-trade-risk, or daily-loss caps.
 - One order is submitted for each confirmed signal. A hedging account can hold simultaneous positions; a netting account is inherently limited by the broker to one net position per symbol.
 - Broker-side stop loss and target on every order; default cash target is approximately US$3, subject to the broker's tick value and costs.
-- Break-even is attempted after US$1 floating profit. Minimum stop-distance rules set by the broker can delay that move.
+- At US$1 floating profit, the EA moves SL to protected break-even: entry plus/minus an estimated US$0.10 lock (`InpBreakEvenLockUSD`). It retries on later ticks until the broker's minimum stop-distance allows the move.
 
 ## Broker “invalid stops” errors
 

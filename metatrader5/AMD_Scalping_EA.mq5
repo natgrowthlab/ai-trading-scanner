@@ -37,6 +37,7 @@ input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
 input bool            InpExitOnMicroReversal = true;
 input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit
 input double          InpBreakEvenTriggerUSD = 1.00;
+input double          InpBreakEvenLockUSD = 0.10;    // Approximate profit to lock above/below entry
 input bool            InpUseFastDirectionFallback = false;
 input bool            InpUseCandleDirectionEntries = false;
 input bool            InpCandleDirectionOverridesBias = false;
@@ -407,6 +408,32 @@ double CashPriceDistance(const double volume,const double cashAmount)
    return(cashAmount*tickSize/(volume*tickValue));
 }
 
+bool MoveStopToProtectedBreakEven(const ulong ticket,const bool isBuy,const double entry,const double currentStop,const double target,const double volume)
+{
+   MqlTick quote;
+   if(!SymbolInfoTick(_Symbol,quote)) return(false);
+   long stopsLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   long freezeLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+   double minimumDistance=(MathMax((double)stopsLevel,(double)freezeLevel)+MathMax(1,InpStopSafetyBufferPoints))*_Point;
+   double lockDistance=CashPriceDistance(volume,InpBreakEvenLockUSD);
+   if(lockDistance<0.0) lockDistance=0.0;
+   double protectedStop;
+   if(isBuy)
+   {
+      protectedStop=MathMin(entry+lockDistance,quote.bid-minimumDistance);
+      if(protectedStop<=entry+_Point || (currentStop>0.0 && protectedStop<=currentStop+_Point)) return(false);
+   }
+   else
+   {
+      protectedStop=MathMax(entry-lockDistance,quote.ask+minimumDistance);
+      if(protectedStop>=entry-_Point || (currentStop>0.0 && protectedStop>=currentStop-_Point)) return(false);
+   }
+   bool sent=trade.PositionModify(ticket,NormalizeDouble(protectedStop,_Digits),target);
+   if(!sent || !TradeResultOK()) return(false);
+   Print("Break-even protected for position ",IntegerToString((int)ticket)," at ",DoubleToString(protectedStop,_Digits));
+   return(true);
+}
+
 double RiskMoneyForVolume(const double entry,const double stop,const double volume)
 {
    double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
@@ -605,11 +632,11 @@ void ManageOpenPosition()
          continue;
       }
 
-      // Once a rapid trade has made enough, remove price risk while its broker-side TP remains active.
+      // Lock a small realised-profit buffer; retry on later ticks if broker distance rules prevent it now.
       if(InpBreakEvenTriggerUSD>0.0 && profit>=InpBreakEvenTriggerUSD)
       {
-         bool improvesStop=(isBuy && (stop==0.0 || entry>stop+_Point)) || (!isBuy && (stop==0.0 || entry<stop-_Point));
-         if(improvesStop) trade.PositionModify(ticket,NormalizeDouble(entry,_Digits),target);
+         if(MoveStopToProtectedBreakEven(ticket,isBuy,entry,stop,target,volume))
+            SetStatus("BREAK-EVEN LOCKED "+(isBuy ? "BUY" : "SELL")+" — profit protected");
       }
 
       // Partial targets are only safe when a single net position is used.
