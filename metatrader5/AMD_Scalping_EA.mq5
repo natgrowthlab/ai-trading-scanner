@@ -61,8 +61,10 @@ input bool            InpEnableAMDShorts = false;
 input double          InpTP1R = 1.0;
 input double          InpTP2R = 1.5;
 input double          InpTP3R = 1.5;
-input ulong           InpDeviationPoints = 20;
+input ulong           InpDeviationPoints = 100;
 input int             InpStopSafetyBufferPoints = 50;
+input int             InpMaxRequoteRetries = 3;
+input ulong           InpRequoteDeviationStepPoints = 50;
 
 CTrade trade;
 int atrHandle = INVALID_HANDLE;
@@ -307,6 +309,61 @@ bool TradeResultOK()
    uint code=trade.ResultRetcode();
    if(code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_PLACED) return(true);
    Print("Trade request rejected: ",trade.ResultRetcodeDescription());
+   return(false);
+}
+
+bool IsRetriablePriceResult(const uint code)
+{
+   return(code==TRADE_RETCODE_REQUOTE || code==TRADE_RETCODE_PRICE_CHANGED || code==TRADE_RETCODE_PRICE_OFF);
+}
+
+bool NormalizeOrderStops(const bool isBuy,double &stop,double &target)
+{
+   MqlTick quote;
+   if(!SymbolInfoTick(_Symbol,quote)) return(false);
+   long stopsLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   long freezeLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+   double minimumDistance=(MathMax((double)stopsLevel,(double)freezeLevel)+MathMax(1,InpStopSafetyBufferPoints))*_Point;
+   if(isBuy)
+   {
+      stop=MathMin(stop,quote.bid-minimumDistance);
+      target=MathMax(target,quote.bid+minimumDistance);
+   }
+   else
+   {
+      stop=MathMax(stop,quote.ask+minimumDistance);
+      target=MathMin(target,quote.ask-minimumDistance);
+   }
+   stop=NormalizeDouble(stop,_Digits);
+   target=NormalizeDouble(target,_Digits);
+   return(isBuy ? (stop<quote.bid && target>quote.bid) : (stop>quote.ask && target<quote.ask));
+}
+
+bool SendOrderWithRetries(const bool isBuy,const double volume,double &stop,double &target)
+{
+   for(int attempt=0;attempt<=InpMaxRequoteRetries;attempt++)
+   {
+      if(!NormalizeOrderStops(isBuy,stop,target))
+      {
+         SetStatus("Blocked — cannot place valid broker stops");
+         break;
+      }
+      trade.SetDeviationInPoints(InpDeviationPoints+(ulong)attempt*InpRequoteDeviationStepPoints);
+      bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,stop,target,"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,stop,target,"AMD scalp short");
+      uint code=trade.ResultRetcode();
+      if(sent && (code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_PLACED))
+      {
+         trade.SetDeviationInPoints(InpDeviationPoints);
+         return(true);
+      }
+      if(!IsRetriablePriceResult(code))
+      {
+         Print("Trade request rejected: ",trade.ResultRetcodeDescription());
+         break;
+      }
+      Print("Price changed; retrying order ",IntegerToString(attempt+1)," of ",IntegerToString(InpMaxRequoteRetries));
+   }
+   trade.SetDeviationInPoints(InpDeviationPoints);
    return(false);
 }
 
@@ -652,30 +709,7 @@ void EvaluateEntry(const bool intrabar=false)
       if(cashDistance<=0.0) { SetStatus("Blocked — cannot calculate cash target"); return; }
       target=isBuy ? entry+cashDistance : entry-cashDistance;
    }
-   // Brokers validate BUY stops against Bid and SELL stops against Ask, not the requested
-   // entry quote. Place both levels outside the broker stop/freeze distance plus a buffer.
-   MqlTick tradeTick;
-   if(!SymbolInfoTick(_Symbol,tradeTick)) { SetStatus("Waiting — no current broker quote"); return; }
-   long stopsLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
-   long freezeLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
-   double minimumStopDistance=(MathMax((double)stopsLevel,(double)freezeLevel)+MathMax(1,InpStopSafetyBufferPoints))*_Point;
-   if(isBuy)
-   {
-      stop=MathMin(stop,tradeTick.bid-minimumStopDistance);
-      target=MathMax(target,tradeTick.bid+minimumStopDistance);
-   }
-   else
-   {
-      stop=MathMax(stop,tradeTick.ask+minimumStopDistance);
-      target=MathMin(target,tradeTick.ask-minimumStopDistance);
-   }
-   stop=NormalizeDouble(stop,_Digits);
-   target=NormalizeDouble(target,_Digits);
-   if((isBuy && (stop>=tradeTick.bid || target<=tradeTick.bid)) || (!isBuy && (stop<=tradeTick.ask || target>=tradeTick.ask)))
-   {
-      SetStatus("Blocked — cannot place valid broker stops");
-      return;
-   }
+   if(!NormalizeOrderStops(isBuy,stop,target)) { SetStatus("Waiting — no valid broker stops yet"); return; }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
    if(tradeRisk<=0.0 || (InpMaxPerTradeRiskUSD>0.0 && tradeRisk>InpMaxPerTradeRiskUSD)) { SetStatus("Blocked — invalid or capped trade risk $"+DoubleToString(tradeRisk,2)); return; }
    if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
@@ -684,8 +718,7 @@ void EvaluateEntry(const bool intrabar=false)
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
    {
       if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
-      bool sent=isBuy ? trade.Buy(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp long") : trade.Sell(volume,_Symbol,0.0,NormalizeDouble(stop,_Digits),NormalizeDouble(target,_Digits),"AMD scalp short");
-      if(sent && TradeResultOK())
+      if(SendOrderWithRetries(isBuy,volume,stop,target))
       {
          lastSignalTime=rates[signalShift].time;
          lastEntryTime=TimeCurrent();

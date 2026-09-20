@@ -21,6 +21,10 @@ This balanced approach intentionally avoids arbitrary tick entries but is less r
 
 The EA now validates BUY stops from Bid and SELL stops from Ask, then moves SL/TP outside the broker's `StopsLevel` / `FreezeLevel` plus `InpStopSafetyBufferPoints` (default 50 points). This avoids an order being rejected just because the requested entry quote and executable quote differ. If a broker still rejects a fast-moving order, increase that buffer in Inputs and compile the updated EA.
 
+## Broker “requote” errors
+
+When price changes during an order request, the EA now refreshes the quote, re-normalizes SL/TP and retries up to `InpMaxRequoteRetries=3` times. The permitted deviation begins at `InpDeviationPoints=100` and expands by `InpRequoteDeviationStepPoints=50` on each retry. If every retry fails, the EA skips that signal instead of sending an order at an unknown price.
+
 The EA is symbol-agnostic. To trade an OTC instrument, attach it to the exact OTC symbol supplied by the broker (for example, a symbol with an `OTC` suffix). The EA cannot make a closed broker market tradeable; broker availability, margin and execution rules still apply.
 
 ## Position management
