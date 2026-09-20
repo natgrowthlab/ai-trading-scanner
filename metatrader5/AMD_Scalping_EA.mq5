@@ -62,6 +62,7 @@ input double          InpTP1R = 1.0;
 input double          InpTP2R = 1.5;
 input double          InpTP3R = 1.5;
 input ulong           InpDeviationPoints = 20;
+input int             InpStopSafetyBufferPoints = 50;
 
 CTrade trade;
 int atrHandle = INVALID_HANDLE;
@@ -651,8 +652,30 @@ void EvaluateEntry(const bool intrabar=false)
       if(cashDistance<=0.0) { SetStatus("Blocked — cannot calculate cash target"); return; }
       target=isBuy ? entry+cashDistance : entry-cashDistance;
    }
-   double minimumStopDistance=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
-   if((isBuy && (entry-stop<minimumStopDistance || target-entry<minimumStopDistance)) || (!isBuy && (stop-entry<minimumStopDistance || entry-target<minimumStopDistance))) { SetStatus("Blocked — broker minimum stop distance"); return; }
+   // Brokers validate BUY stops against Bid and SELL stops against Ask, not the requested
+   // entry quote. Place both levels outside the broker stop/freeze distance plus a buffer.
+   MqlTick tradeTick;
+   if(!SymbolInfoTick(_Symbol,tradeTick)) { SetStatus("Waiting — no current broker quote"); return; }
+   long stopsLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   long freezeLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+   double minimumStopDistance=(MathMax((double)stopsLevel,(double)freezeLevel)+MathMax(1,InpStopSafetyBufferPoints))*_Point;
+   if(isBuy)
+   {
+      stop=MathMin(stop,tradeTick.bid-minimumStopDistance);
+      target=MathMax(target,tradeTick.bid+minimumStopDistance);
+   }
+   else
+   {
+      stop=MathMax(stop,tradeTick.ask+minimumStopDistance);
+      target=MathMin(target,tradeTick.ask-minimumStopDistance);
+   }
+   stop=NormalizeDouble(stop,_Digits);
+   target=NormalizeDouble(target,_Digits);
+   if((isBuy && (stop>=tradeTick.bid || target<=tradeTick.bid)) || (!isBuy && (stop<=tradeTick.ask || target>=tradeTick.ask)))
+   {
+      SetStatus("Blocked — cannot place valid broker stops");
+      return;
+   }
    double tradeRisk=RiskMoneyForVolume(entry,stop,volume);
    if(tradeRisk<=0.0 || (InpMaxPerTradeRiskUSD>0.0 && tradeRisk>InpMaxPerTradeRiskUSD)) { SetStatus("Blocked — invalid or capped trade risk $"+DoubleToString(tradeRisk,2)); return; }
    if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
