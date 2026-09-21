@@ -33,7 +33,7 @@ input double          InpMaxDailyLossUSD = 0.00;      // 0 = no EA daily-loss ca
 input bool            InpEvaluateEveryTick = true;
 input int             InpMinimumSecondsBetweenEntries = 1;
 input int             InpReentryCooldownSeconds = 1;
-input int             InpMaxEntriesPerCandle = 3;
+input int             InpMaxEntriesPerCandle = 0;    // 0 = no EA limit per candle (demo mode)
 input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
 input bool            InpExitOnMicroReversal = false;
 input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit

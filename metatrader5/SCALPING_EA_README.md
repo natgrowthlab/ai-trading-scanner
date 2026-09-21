@@ -6,7 +6,7 @@
 
 The EA runs only on M1 or M5 and evaluates the forming candle on every tick. A green live candle can open a BUY and a red live candle can open a SELL. When that candle changes direction, open positions in the prior direction are closed; after the re-entry cooldown the EA can evaluate the new direction.
 
-`InpMaxEntriesPerCandle=3` prevents more than three entries in one M1/M5 candle. This counts successful orders, whether they were opened sequentially after a profitable exit or after a direction change.
+`InpMaxEntriesPerCandle=0` removes the EA limit on entries in one M1/M5 candle for demo mode. Set a positive value such as `3` if you later want to cap successful entries in each candle.
 
 ## Demo mode defaults
 
