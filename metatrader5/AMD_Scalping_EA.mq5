@@ -42,13 +42,14 @@ input double          InpQuickProfitCloseUSD = 1.00;
 input double          InpBreakEvenTriggerUSD = 0.50;
 input double          InpBreakEvenLockUSD = 0.10;    // Approximate profit to lock above/below entry
 input bool            InpUseFastDirectionFallback = false;
-input bool            InpUseCandleDirectionEntries = false;
-input bool            InpCandleDirectionOverridesBias = false;
-input bool            InpUseRetracementEntries = true;
+input bool            InpUseCandleDirectionEntries = true;
+input bool            InpCandleDirectionOverridesBias = true;
+input int             InpCandleDirectionBufferPoints = 10;
+input bool            InpUseRetracementEntries = false;
 input int             InpRetracementBufferPoints = 10;
 input bool            InpExitOnLosingCandleFlip = false;
-input bool            InpExitOnCandleDirectionFlip = false;
-input bool            InpExitOnRetracementFailure = true;
+input bool            InpExitOnCandleDirectionFlip = true;
+input bool            InpExitOnRetracementFailure = false;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
@@ -641,8 +642,9 @@ void ManageOpenPosition()
       double candleOpen=iOpen(_Symbol,_Period,0);
       bool candleFlipExit=InpExitOnLosingCandleFlip && profit<0.0 && candleOpen>0.0 &&
                           (isBuy ? price<candleOpen : price>candleOpen);
+      double directionBuffer=InpCandleDirectionBufferPoints*_Point;
       bool directionFlipExit=InpExitOnCandleDirectionFlip && candleOpen>0.0 &&
-                             (isBuy ? price<candleOpen : price>candleOpen);
+                             (isBuy ? price<candleOpen-directionBuffer : price>candleOpen+directionBuffer);
       double retracementBuffer=InpRetracementBufferPoints*_Point;
       bool retracementFailure=InpExitOnRetracementFailure && emaReady &&
                               (isBuy ? price<entryEma-retracementBuffer : price>entryEma+retracementBuffer);
@@ -753,12 +755,23 @@ void EvaluateEntry(const bool intrabar=false)
       shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma;
    }
    bool usedRetracement=false;
+   bool usedCandleDirection=false;
    MqlTick liveTick;
    if(!SymbolInfoTick(_Symbol,liveTick)) { SetStatus("Waiting — no current broker quote"); return; }
    double retracementBuffer=InpRetracementBufferPoints*_Point;
+   double directionBuffer=InpCandleDirectionBufferPoints*_Point;
    bool longRetracement=trendLong && rates[signalShift].low<=entryEma+retracementBuffer && liveTick.bid>entryEma+retracementBuffer;
    bool shortRetracement=trendShort && rates[signalShift].high>=entryEma-retracementBuffer && liveTick.ask<entryEma-retracementBuffer;
-   if(intrabar && InpUseRetracementEntries)
+   bool candleLong=liveTick.bid>rates[signalShift].open+directionBuffer;
+   bool candleShort=liveTick.ask<rates[signalShift].open-directionBuffer;
+   if(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias && (candleLong || candleShort))
+   {
+      longSignal=InpEnableLongs && candleLong;
+      shortSignal=InpEnableShorts && candleShort;
+      amdShort=false;
+      usedCandleDirection=true;
+   }
+   else if(intrabar && InpUseRetracementEntries)
    {
       longSignal=InpEnableLongs && longRetracement;
       shortSignal=InpEnableShorts && shortRetracement;
@@ -767,7 +780,7 @@ void EvaluateEntry(const bool intrabar=false)
    }
    if(!longSignal && !amdShort && !shortSignal)
    {
-      SetStatus(intrabar && InpUseRetracementEntries ? "Waiting — no valid retracement" : "Waiting — no validated AMD structure");
+      SetStatus(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias ? "Waiting — candle movement is below direction buffer" : (intrabar && InpUseRetracementEntries ? "Waiting — no valid retracement" : "Waiting — no validated AMD structure"));
       return;
    }
 
@@ -805,7 +818,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedRetracement ? " — EMA retracement" : " — validated AMD structure"));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — candle movement" : (usedRetracement ? " — EMA retracement" : " — validated AMD structure")));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }
