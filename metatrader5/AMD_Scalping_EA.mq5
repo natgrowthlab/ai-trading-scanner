@@ -19,8 +19,8 @@ input bool            InpIgnoreSpreadFilter = true;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
 input double          InpMaxLossUSD = 1.50;
-input bool            InpUseCashTakeProfit = true;
-input double          InpTakeProfitUSD = 3.00;
+input bool            InpUseCashTakeProfit = false; // Exit profitable positions at market instead of placing a TP
+input double          InpTakeProfitUSD = 0.00;
 input bool            InpOpenOnActivation = false;   // Require a confirmed pullback setup
 input bool            InpUseFixedLot = true;
 input double          InpFixedLot = 0.01;
@@ -30,18 +30,21 @@ input int             InpMaxTradesPerDay = 0;        // 0 = no EA daily entry ca
 input double          InpMaxTotalRiskUSD = 0.00;      // 0 = no EA open-risk cap
 input double          InpMaxPerTradeRiskUSD = 0.00;   // 0 = no EA per-trade risk cap
 input double          InpMaxDailyLossUSD = 0.00;      // 0 = no EA daily-loss cap
-input bool            InpEvaluateEveryTick = false;
-input int             InpMinimumSecondsBetweenEntries = 60;
-input int             InpReentryCooldownSeconds = 60;
+input bool            InpEvaluateEveryTick = true;
+input int             InpMinimumSecondsBetweenEntries = 1;
+input int             InpReentryCooldownSeconds = 1;
+input int             InpMaxEntriesPerCandle = 3;
 input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
-input bool            InpExitOnMicroReversal = true;
+input bool            InpExitOnMicroReversal = false;
 input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit
-input double          InpBreakEvenTriggerUSD = 1.00;
+input double          InpQuickProfitCloseUSD = 1.00;
+input double          InpBreakEvenTriggerUSD = 0.50;
 input double          InpBreakEvenLockUSD = 0.10;    // Approximate profit to lock above/below entry
 input bool            InpUseFastDirectionFallback = false;
-input bool            InpUseCandleDirectionEntries = false;
-input bool            InpCandleDirectionOverridesBias = false;
+input bool            InpUseCandleDirectionEntries = true;
+input bool            InpCandleDirectionOverridesBias = true;
 input bool            InpExitOnLosingCandleFlip = false;
+input bool            InpExitOnCandleDirectionFlip = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
@@ -76,6 +79,8 @@ datetime lastClosedBar = 0;
 datetime lastSignalTime = 0;
 datetime lastEntryTime = 0;
 datetime lastExitTime = 0;
+datetime trackedEntryCandle = 0;
+int entriesThisCandle = 0;
 datetime processedH4Time = 0;
 double amdTargetLow = 0.0;
 bool amdTargetActive = false;
@@ -305,6 +310,17 @@ void RefreshTradeDay()
    }
 }
 
+void RefreshCandleEntryCount()
+{
+   datetime currentCandle=iTime(_Symbol,_Period,0);
+   if(currentCandle<=0) return;
+   if(currentCandle!=trackedEntryCandle)
+   {
+      trackedEntryCandle=currentCandle;
+      entriesThisCandle=0;
+   }
+}
+
 bool TradeResultOK()
 {
    uint code=trade.ResultRetcode();
@@ -328,16 +344,16 @@ bool NormalizeOrderStops(const bool isBuy,double &stop,double &target)
    if(isBuy)
    {
       stop=MathMin(stop,quote.bid-minimumDistance);
-      target=MathMax(target,quote.bid+minimumDistance);
+      if(target>0.0) target=MathMax(target,quote.bid+minimumDistance);
    }
    else
    {
       stop=MathMax(stop,quote.ask+minimumDistance);
-      target=MathMin(target,quote.ask-minimumDistance);
+      if(target>0.0) target=MathMin(target,quote.ask-minimumDistance);
    }
    stop=NormalizeDouble(stop,_Digits);
-   target=NormalizeDouble(target,_Digits);
-   return(isBuy ? (stop<quote.bid && target>quote.bid) : (stop>quote.ask && target<quote.ask));
+   if(target>0.0) target=NormalizeDouble(target,_Digits);
+   return(isBuy ? (stop<quote.bid && (target==0.0 || target>quote.bid)) : (stop>quote.ask && (target==0.0 || target<quote.ask)));
 }
 
 bool SendOrderWithRetries(const bool isBuy,const double volume,double &stop,double &target)
@@ -615,14 +631,17 @@ void ManageOpenPosition()
 
       bool timeExit=InpMaxHoldSeconds>0 && heldSeconds>=InpMaxHoldSeconds;
       bool lossExit=InpFastLossExitUSD>0.0 && profit<=-InpFastLossExitUSD;
+      bool profitExit=InpQuickProfitCloseUSD>0.0 && profit>=InpQuickProfitCloseUSD;
       bool reversalExit=InpExitOnMicroReversal && emaReady &&
                         (isBuy ? (price<entryEma && entryEma<previousEntryEma) : (price>entryEma && entryEma>previousEntryEma));
       double candleOpen=iOpen(_Symbol,_Period,0);
       bool candleFlipExit=InpExitOnLosingCandleFlip && profit<0.0 && candleOpen>0.0 &&
                           (isBuy ? price<candleOpen : price>candleOpen);
-      if(timeExit || lossExit || reversalExit || candleFlipExit)
+      bool directionFlipExit=InpExitOnCandleDirectionFlip && candleOpen>0.0 &&
+                             (isBuy ? price<candleOpen : price>candleOpen);
+      if(timeExit || lossExit || profitExit || reversalExit || candleFlipExit || directionFlipExit)
       {
-         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (candleFlipExit ? "losing candle flip" : (profit>0.0 ? "dynamic profit exit" : "micro reversal")));
+         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (profitExit ? "quick profit target" : (directionFlipExit ? "candle direction flip" : (candleFlipExit ? "losing candle flip" : (profit>0.0 ? "dynamic profit exit" : "micro reversal")))));
          bool sent=trade.PositionClose(ticket);
          if(sent && TradeResultOK())
          {
@@ -670,6 +689,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(!InpIgnoreSpreadFilter && !SpreadAllowed()) { SetStatus("Waiting — spread exceeds InpMaxSpreadPoints"); return; }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) { SetStatus("Blocked — Algo Trading permission is off"); return; }
    RefreshTradeDay();
+   RefreshCandleEntryCount();
    if(InpMaxDailyLossUSD>0.0 && DailyRealizedLoss()>=InpMaxDailyLossUSD) { SetStatus("Blocked — daily loss limit reached"); return; }
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
@@ -678,6 +698,7 @@ void EvaluateEntry(const bool intrabar=false)
    int seconds=PeriodSeconds(_Period);
    if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) { SetStatus("Waiting — intrabar entry cooldown"); return; }
    if(intrabar && lastExitTime>0 && TimeCurrent()-lastExitTime<InpReentryCooldownSeconds) { SetStatus("Waiting — rapid re-entry cooldown"); return; }
+   if(intrabar && InpMaxEntriesPerCandle>0 && entriesThisCandle>=InpMaxEntriesPerCandle) { SetStatus("Waiting — maximum entries reached for this candle"); return; }
    if(!intrabar && lastSignalTime>0 && iTime(_Symbol,_Period,1)-lastSignalTime<(datetime)((seconds>0 ? seconds : 60)*InpCooldownBars)) { SetStatus("Waiting — bar cooldown"); return; }
 
    MqlRates rates[];
@@ -724,6 +745,15 @@ void EvaluateEntry(const bool intrabar=false)
       shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma;
    }
    bool usedCandleDirection=false;
+   bool candleLong=rates[signalShift].close>rates[signalShift].open;
+   bool candleShort=rates[signalShift].close<rates[signalShift].open;
+   if(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias && (candleLong || candleShort))
+   {
+      longSignal=InpEnableLongs && candleLong;
+      shortSignal=InpEnableShorts && candleShort;
+      amdShort=false;
+      usedCandleDirection=true;
+   }
    if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no validated AMD structure"); return; }
 
    bool isBuy=longSignal;
@@ -734,7 +764,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(risk<=_Point) { SetStatus("Blocked — invalid stop distance"); return; }
    double volume=InpUseFixedLot ? NormalizeVolume(InpFixedLot) : RiskBasedVolume(entry,stop);
    if(volume<=0.0) { SetStatus("Blocked — lot minimum exceeds risk limit"); return; }
-   double target=isBuy ? entry+risk*InpTP3R : (amdShort ? MathMin(amdTargetLow,entry-risk*InpTP3R) : entry-risk*InpTP3R);
+   double target=0.0;
    if(InpUseCashTakeProfit)
    {
       double cashDistance=CashPriceDistance(volume,InpTakeProfitUSD);
@@ -747,6 +777,7 @@ void EvaluateEntry(const bool intrabar=false)
    if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) { SetStatus("Blocked — next risk $"+DoubleToString(tradeRisk,2)+" exceeds open-risk limit $"+DoubleToString(InpMaxTotalRiskUSD,2)); return; }
    int permittedOrders=MathMin(InpOrdersPerSignal,maxPositions-openPositions);
    if(InpMaxTradesPerDay>0) permittedOrders=MathMin(permittedOrders,InpMaxTradesPerDay-tradesToday);
+   if(intrabar && InpMaxEntriesPerCandle>0) permittedOrders=MathMin(permittedOrders,InpMaxEntriesPerCandle-entriesThisCandle);
    for(int orderNumber=0;orderNumber<permittedOrders;orderNumber++)
    {
       if(InpMaxTotalRiskUSD>0.0 && TotalOpenRisk()+tradeRisk>InpMaxTotalRiskUSD) break;
@@ -755,6 +786,7 @@ void EvaluateEntry(const bool intrabar=false)
          lastSignalTime=rates[signalShift].time;
          lastEntryTime=TimeCurrent();
          tradesToday++;
+         if(intrabar) entriesThisCandle++;
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
