@@ -34,6 +34,7 @@ input bool            InpEvaluateEveryTick = true;
 input int             InpMinimumSecondsBetweenEntries = 1;
 input int             InpReentryCooldownSeconds = 1;
 input int             InpMaxEntriesPerCandle = 0;    // 0 = no EA limit per candle (demo mode)
+input bool            InpOneActiveTradeAtATime = true;
 input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
 input bool            InpExitOnMicroReversal = false;
 input double          InpFastLossExitUSD = 0.0;      // Broker-side stop is the hard loss limit
@@ -694,6 +695,7 @@ void EvaluateEntry(const bool intrabar=false)
    int maxPositions=EffectiveMaxPositions();
    int openPositions=OwnPositionCount();
    if(openPositions>=maxPositions) { SetStatus("Waiting — maximum open positions reached"); return; }
+   if(InpOneActiveTradeAtATime && openPositions>0) { SetStatus("Waiting — current candle trade is active"); return; }
    if(InpMaxTradesPerDay>0 && tradesToday>=InpMaxTradesPerDay) { SetStatus("Waiting — daily trade limit reached"); return; }
    int seconds=PeriodSeconds(_Period);
    if(intrabar && lastEntryTime>0 && TimeCurrent()-lastEntryTime<InpMinimumSecondsBetweenEntries) { SetStatus("Waiting — intrabar entry cooldown"); return; }
@@ -754,7 +756,11 @@ void EvaluateEntry(const bool intrabar=false)
       amdShort=false;
       usedCandleDirection=true;
    }
-   if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no validated AMD structure"); return; }
+   if(!longSignal && !amdShort && !shortSignal)
+   {
+      SetStatus(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias ? "Waiting — candle has no direction yet" : "Waiting — no validated AMD structure");
+      return;
+   }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);

@@ -8,6 +8,8 @@ The EA runs only on M1 or M5 and evaluates the forming candle on every tick. A g
 
 `InpMaxEntriesPerCandle=0` removes the EA limit on entries in one M1/M5 candle for demo mode. Set a positive value such as `3` if you later want to cap successful entries in each candle.
 
+`InpOneActiveTradeAtATime=true` prevents the EA from stacking positions while one trade is still active. It can nevertheless make several **sequential** trades in one candle: close at the quick-profit threshold or on a direction flip, wait the re-entry cooldown, then evaluate the current candle again.
+
 ## Demo mode defaults
 
 - `InpTradeAllHours=true`: no EA session restriction, 24 hours a day.
