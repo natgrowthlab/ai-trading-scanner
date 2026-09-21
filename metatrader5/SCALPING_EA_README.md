@@ -1,14 +1,14 @@
 # AMD Scalping EA for MetaTrader 5
 
-`AMD_Scalping_EA.mq5` is an intrabar candle-direction Expert Advisor for demo use. Its defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the controls needed to stop or resume new entries.
+`AMD_Scalping_EA.mq5` is an intrabar EMA-retracement Expert Advisor for demo use. Its defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the controls needed to stop or resume new entries.
 
 ## Entry logic
 
-The EA runs only on M1 or M5 and evaluates the forming candle on every tick. A green live candle can open a BUY and a red live candle can open a SELL. When that candle changes direction, open positions in the prior direction are closed; after the re-entry cooldown the EA can evaluate the new direction.
+The EA runs only on M1 or M5 and evaluates the forming candle on every tick. In an M15 bullish EMA trend, it waits for price to retrace to the entry EMA and reclaim it before opening a BUY. In an M15 bearish trend, it waits for a retracement into the EMA and rejection back below it before a SELL. `InpRetracementBufferPoints` controls how close the price must come to the EMA.
 
 `InpMaxEntriesPerCandle=0` removes the EA limit on entries in one M1/M5 candle for demo mode. Set a positive value such as `3` if you later want to cap successful entries in each candle.
 
-`InpOneActiveTradeAtATime=true` prevents the EA from stacking positions while one trade is still active. It can nevertheless make several **sequential** trades in one candle: close at the quick-profit threshold or on a direction flip, wait the re-entry cooldown, then evaluate the current candle again.
+`InpOneActiveTradeAtATime=true` prevents the EA from stacking positions while one trade is still active. It can nevertheless make several **sequential** trades in one candle: close at the quick-profit threshold or when price invalidates the retracement below/above the EMA, wait the re-entry cooldown, then evaluate the current candle again.
 
 ## Demo mode defaults
 

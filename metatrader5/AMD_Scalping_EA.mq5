@@ -42,10 +42,13 @@ input double          InpQuickProfitCloseUSD = 1.00;
 input double          InpBreakEvenTriggerUSD = 0.50;
 input double          InpBreakEvenLockUSD = 0.10;    // Approximate profit to lock above/below entry
 input bool            InpUseFastDirectionFallback = false;
-input bool            InpUseCandleDirectionEntries = true;
-input bool            InpCandleDirectionOverridesBias = true;
+input bool            InpUseCandleDirectionEntries = false;
+input bool            InpCandleDirectionOverridesBias = false;
+input bool            InpUseRetracementEntries = true;
+input int             InpRetracementBufferPoints = 10;
 input bool            InpExitOnLosingCandleFlip = false;
-input bool            InpExitOnCandleDirectionFlip = true;
+input bool            InpExitOnCandleDirectionFlip = false;
+input bool            InpExitOnRetracementFailure = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
@@ -640,9 +643,12 @@ void ManageOpenPosition()
                           (isBuy ? price<candleOpen : price>candleOpen);
       bool directionFlipExit=InpExitOnCandleDirectionFlip && candleOpen>0.0 &&
                              (isBuy ? price<candleOpen : price>candleOpen);
-      if(timeExit || lossExit || profitExit || reversalExit || candleFlipExit || directionFlipExit)
+      double retracementBuffer=InpRetracementBufferPoints*_Point;
+      bool retracementFailure=InpExitOnRetracementFailure && emaReady &&
+                              (isBuy ? price<entryEma-retracementBuffer : price>entryEma+retracementBuffer);
+      if(timeExit || lossExit || profitExit || reversalExit || candleFlipExit || directionFlipExit || retracementFailure)
       {
-         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (profitExit ? "quick profit target" : (directionFlipExit ? "candle direction flip" : (candleFlipExit ? "losing candle flip" : (profit>0.0 ? "dynamic profit exit" : "micro reversal")))));
+         string reason=timeExit ? "time limit" : (lossExit ? "fast loss limit" : (profitExit ? "quick profit target" : (retracementFailure ? "retracement failure" : (directionFlipExit ? "candle direction flip" : (candleFlipExit ? "losing candle flip" : (profit>0.0 ? "dynamic profit exit" : "micro reversal"))))));
          bool sent=trade.PositionClose(ticket);
          if(sent && TradeResultOK())
          {
@@ -746,19 +752,22 @@ void EvaluateEntry(const bool intrabar=false)
       longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma;
       shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma;
    }
-   bool usedCandleDirection=false;
-   bool candleLong=rates[signalShift].close>rates[signalShift].open;
-   bool candleShort=rates[signalShift].close<rates[signalShift].open;
-   if(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias && (candleLong || candleShort))
+   bool usedRetracement=false;
+   MqlTick liveTick;
+   if(!SymbolInfoTick(_Symbol,liveTick)) { SetStatus("Waiting — no current broker quote"); return; }
+   double retracementBuffer=InpRetracementBufferPoints*_Point;
+   bool longRetracement=trendLong && rates[signalShift].low<=entryEma+retracementBuffer && liveTick.bid>entryEma+retracementBuffer;
+   bool shortRetracement=trendShort && rates[signalShift].high>=entryEma-retracementBuffer && liveTick.ask<entryEma-retracementBuffer;
+   if(intrabar && InpUseRetracementEntries)
    {
-      longSignal=InpEnableLongs && candleLong;
-      shortSignal=InpEnableShorts && candleShort;
+      longSignal=InpEnableLongs && longRetracement;
+      shortSignal=InpEnableShorts && shortRetracement;
       amdShort=false;
-      usedCandleDirection=true;
+      usedRetracement=true;
    }
    if(!longSignal && !amdShort && !shortSignal)
    {
-      SetStatus(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias ? "Waiting — candle has no direction yet" : "Waiting — no validated AMD structure");
+      SetStatus(intrabar && InpUseRetracementEntries ? "Waiting — no valid retracement" : "Waiting — no validated AMD structure");
       return;
    }
 
@@ -796,7 +805,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — validated AMD structure"));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedRetracement ? " — EMA retracement" : " — validated AMD structure"));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }
