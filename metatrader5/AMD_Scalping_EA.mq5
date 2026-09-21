@@ -43,12 +43,12 @@ input bool            InpUseCandleDirectionEntries = false;
 input bool            InpCandleDirectionOverridesBias = false;
 input bool            InpExitOnLosingCandleFlip = false;
 input bool            InpShowStatusPanel = true;
-input bool            InpBypassVolatilityFilter = true;
+input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
 input int             InpSwingRightBars = 3;
 input int             InpCooldownBars = 1;
 input int             InpATRPeriod = 14;
-input double          InpMinRiskATR = 0.25;
+input double          InpMinRiskATR = 0.75;
 input int             InpEntryEMAPeriod = 20;
 input int             InpHTFFastEMAPeriod = 50;
 input int             InpHTFSlowEMAPeriod = 200;
@@ -701,29 +701,34 @@ void EvaluateEntry(const bool intrabar=false)
    relativeAtrAverage/=50.0;
    if(!InpBypassVolatilityFilter && relativeAtr<relativeAtrAverage*InpMinimumRelativeATR) { SetStatus("Waiting — volatility filter"); return; }
 
-   bool trendLong=htfClose>htfFast;
-   bool trendShort=htfClose<htfFast;
-   bool fastTrendLong=rates[signalShift].close>entryEma && entryEma>=previousEntryEma;
-   bool fastTrendShort=rates[signalShift].close<entryEma && entryEma<=previousEntryEma;
-   bool candleLong=rates[signalShift].close>rates[signalShift].open;
-   bool candleShort=rates[signalShift].close<rates[signalShift].open;
-   bool longPullback=candleLong && rates[signalShift].low<=entryEma && rates[signalShift].close>entryEma;
-   bool shortPullback=candleShort && rates[signalShift].high>=entryEma && rates[signalShift].close<entryEma;
-   bool longCross=candleLong && rates[priorShift].close<=previousEntryEma && rates[signalShift].close>entryEma;
-   bool shortCross=candleShort && rates[priorShift].close>=previousEntryEma && rates[signalShift].close<entryEma;
-   bool longMomentum=candleLong && rates[signalShift].close>rates[priorShift].high && rates[signalShift].close>entryEma;
-   bool shortMomentum=candleShort && rates[signalShift].close<rates[priorShift].low && rates[signalShift].close<entryEma;
-
-   // Closed-candle trend entry: symmetrical pullback, cross, or one-bar momentum confirmation.
-   bool longSignal=InpEnableLongs && trendLong && fastTrendLong && (longPullback || longCross || longMomentum);
-   bool shortSignal=InpEnableShorts && trendShort && fastTrendShort && (shortPullback || shortCross || shortMomentum);
-   bool amdShort=false;
+   UpdateAMDTarget();
+   int fvgShift=signalShift+2;
+   double swingHigh=LatestSwingHigh(rates,count);
+   double swingLow=LatestSwingLow(rates,count);
+   bool bullishBreak=swingHigh>0.0 && rates[signalShift].close>swingHigh && rates[priorShift].close<=swingHigh;
+   bool bearishBreak=swingLow>0.0 && rates[signalShift].close<swingLow && rates[priorShift].close>=swingLow;
+   bool sweepLow=swingLow>0.0 && rates[signalShift].low<swingLow && rates[signalShift].close>swingLow;
+   bool sweepHigh=swingHigh>0.0 && rates[signalShift].high>swingHigh && rates[signalShift].close<swingHigh;
+   bool bullishFvg=rates[signalShift].low>rates[fvgShift].high;
+   bool bearishFvg=rates[signalShift].high<rates[fvgShift].low;
+   int longScore=(sweepLow ? 1 : 0)+(bullishFvg ? 1 : 0);
+   int shortScore=(sweepHigh ? 1 : 0)+(bearishFvg ? 1 : 0);
+   bool trendLong=htfClose>htfFast && htfFast>htfSlow;
+   bool trendShort=htfClose<htfFast && htfFast<htfSlow;
+   bool longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma && bullishBreak && longScore>=InpMinimumStructureConfirmations;
+   bool amdShort=InpEnableShorts && InpEnableAMDShorts && amdTargetActive && rates[signalShift].close>amdTargetLow && trendShort && shortScore>=InpMinimumAMDConfirmations;
+   bool shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma && bearishBreak && shortScore>=InpMinimumStructureConfirmations;
+   if(InpOpenOnActivation && !longSignal && !amdShort && !shortSignal)
+   {
+      longSignal=InpEnableLongs && trendLong && rates[signalShift].close>entryEma;
+      shortSignal=InpEnableShorts && trendShort && rates[signalShift].close<entryEma;
+   }
    bool usedCandleDirection=false;
-   if(!longSignal && !shortSignal) { SetStatus("Waiting — no confirmed trend setup"); return; }
+   if(!longSignal && !amdShort && !shortSignal) { SetStatus("Waiting — no validated AMD structure"); return; }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double stop=isBuy ? rates[signalShift].low : rates[signalShift].high;
+   double stop=isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high);
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) { SetStatus("Blocked — invalid stop distance"); return; }
@@ -753,7 +758,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — confirmed trend pullback"));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — live candle direction" : " — validated AMD structure"));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }

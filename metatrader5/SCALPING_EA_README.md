@@ -1,12 +1,12 @@
 # AMD Scalping EA for MetaTrader 5
 
-`AMD_Scalping_EA.mq5` is a closed-candle, trend-pullback Expert Advisor. Its demo defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the only controls needed to stop or resume new entries.
+`AMD_Scalping_EA.mq5` is a closed-candle AMD structure Expert Advisor. Its demo defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the only controls needed to stop or resume new entries.
 
 ## Entry logic
 
-The EA runs only on M1 or M5 and evaluates the last closed candle. A BUY requires price above the M15 trend EMA, a rising entry EMA, and a confirmed bullish pullback, EMA cross, or one-bar momentum break. A SELL uses the exact mirrored conditions below the M15 trend EMA. It does not trade simply because the current candle changes colour.
+The EA runs only on M1 or M5 and evaluates the last closed candle. A BUY requires M15 EMA trend alignment, a bullish break of the latest swing high, and a liquidity-sweep or fair-value-gap confirmation. A SELL uses the exact mirrored conditions: bearish EMA alignment, swing-low break, and bearish liquidity/FVG confirmation. Optional AMD shorts require an active 4H wickless-candle target plus the same bearish confirmation.
 
-This balanced approach intentionally avoids arbitrary tick entries but is less restrictive than the first pullback-only version. A `Waiting — no confirmed trend setup` message is normal when neither direction is confirmed.
+This is the initial, selective strategy used before the high-frequency momentum/pullback changes. A `Waiting — no validated AMD structure` message is normal when neither direction is confirmed.
 
 ## Demo mode defaults
 
@@ -14,7 +14,7 @@ This balanced approach intentionally avoids arbitrary tick entries but is less r
 - `InpIgnoreSpreadFilter=true`: spread does not block an entry.
 - `InpMaxOpenPositions=0`, `InpMaxTradesPerDay=0`, `InpMaxTotalRiskUSD=0`, `InpMaxPerTradeRiskUSD=0`, and `InpMaxDailyLossUSD=0`: no EA entry, position, open-risk, per-trade-risk, or daily-loss caps.
 - One order is submitted for each confirmed signal. A hedging account can hold simultaneous positions; a netting account is inherently limited by the broker to one net position per symbol.
-- Broker-side stop loss and target on every order; default cash target is approximately US$3, subject to the broker's tick value and costs.
+- Broker-side stop loss and target on every order; default cash target is approximately US$3, subject to the broker's tick value and costs. This is a target, not a guaranteed result.
 - At US$1 floating profit, the EA moves SL to protected break-even: entry plus/minus an estimated US$0.10 lock (`InpBreakEvenLockUSD`). It retries on later ticks until the broker's minimum stop-distance allows the move.
 
 ## Broker “invalid stops” errors
