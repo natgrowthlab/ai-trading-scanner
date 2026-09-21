@@ -4,7 +4,7 @@
 
 ## Entry logic
 
-The EA runs only on M1 or M5 and evaluates the completed candle. A BUY requires: M15 EMA 50/200 bullish alignment, a bullish impulse candle of at least `InpImpulseATRMultiple` ATR, then a bullish rejection candle that returns to and closes back above EMA 20. SELL uses the exact mirrored conditions. `InpRejectionWickBodyRatio` controls the required rejection wick relative to the signal body.
+The EA runs only on M1 or M5 and evaluates the completed candle. A BUY requires price above the M15 fast EMA, a bullish impulse candle of at least `InpImpulseATRMultiple` ATR, then a bullish rejection candle that returns near and closes back above EMA 20. SELL uses the exact mirrored conditions. `InpRejectionWickBodyRatio` controls the required rejection wick relative to the signal body and `InpRetracementBufferPoints` permits a small EMA-touch tolerance.
 
 `InpMaxEntriesPerCandle=0` removes the EA limit on entries in one M1/M5 candle for demo mode. Set a positive value such as `3` if you later want to cap successful entries in each candle.
 
