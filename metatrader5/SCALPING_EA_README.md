@@ -1,14 +1,14 @@
 # AMD Scalping EA for MetaTrader 5
 
-`AMD_Scalping_EA.mq5` is an intrabar candle-movement Expert Advisor for demo use. Its defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the controls needed to stop or resume new entries.
+`AMD_Scalping_EA.mq5` is a confirmed trend-pullback Expert Advisor for demo use. Its defaults are active and the on-chart **PAUSE BOT** / **RESUME BOT** buttons are the controls needed to stop or resume new entries.
 
 ## Entry logic
 
-The EA runs only on M1 or M5 and evaluates the forming candle on every tick. When price moves above that candle's open by `InpCandleDirectionBufferPoints`, it can open a BUY; when it moves below the open by that buffer, it can open a SELL. If price crosses the same buffer in the opposite direction, it closes the current trade and can evaluate the reversal after the cooldown. The optional EMA-retracement mode remains available but is off by default.
+The EA runs only on M1 or M5 and evaluates the completed candle. A BUY requires: M15 EMA 50/200 bullish alignment, a bullish impulse candle of at least `InpImpulseATRMultiple` ATR, then a bullish rejection candle that returns to and closes back above EMA 20. SELL uses the exact mirrored conditions. `InpRejectionWickBodyRatio` controls the required rejection wick relative to the signal body.
 
 `InpMaxEntriesPerCandle=0` removes the EA limit on entries in one M1/M5 candle for demo mode. Set a positive value such as `3` if you later want to cap successful entries in each candle.
 
-`InpOneActiveTradeAtATime=true` prevents the EA from stacking positions while one trade is still active. It can nevertheless make several **sequential** trades in one candle: close at the quick-profit threshold or when price reverses across the candle-direction buffer, wait the re-entry cooldown, then evaluate the current candle again.
+`InpOneActiveTradeAtATime=true` prevents the EA from stacking positions while one trade is still active. It can make a new sequential trade after the quick-profit exit or after price invalidates the EMA pullback.
 
 ## Demo mode defaults
 

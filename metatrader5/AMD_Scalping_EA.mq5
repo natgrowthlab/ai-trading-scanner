@@ -15,7 +15,7 @@ input bool            InpTradeAllHours = true;       // Still subject to the bro
 input int             InpSessionStartHour = 0;       // Broker server time
 input int             InpSessionEndHour = 23;        // Broker server time
 input int             InpMaxSpreadPoints = 200;
-input bool            InpIgnoreSpreadFilter = true;
+input bool            InpIgnoreSpreadFilter = false;
 input double          InpRiskPercent = 0.25;         // Equity risk per trade
 input bool            InpUseCashRisk = true;
 input double          InpMaxLossUSD = 1.50;
@@ -30,10 +30,10 @@ input int             InpMaxTradesPerDay = 0;        // 0 = no EA daily entry ca
 input double          InpMaxTotalRiskUSD = 0.00;      // 0 = no EA open-risk cap
 input double          InpMaxPerTradeRiskUSD = 0.00;   // 0 = no EA per-trade risk cap
 input double          InpMaxDailyLossUSD = 0.00;      // 0 = no EA daily-loss cap
-input bool            InpEvaluateEveryTick = true;
+input bool            InpEvaluateEveryTick = false;
 input int             InpMinimumSecondsBetweenEntries = 1;
 input int             InpReentryCooldownSeconds = 1;
-input int             InpMaxEntriesPerCandle = 0;    // 0 = no EA limit per candle (demo mode)
+input int             InpMaxEntriesPerCandle = 1;
 input bool            InpOneActiveTradeAtATime = true;
 input int             InpMaxHoldSeconds = 0;          // 0 = no time-based exit
 input bool            InpExitOnMicroReversal = false;
@@ -42,14 +42,17 @@ input double          InpQuickProfitCloseUSD = 1.00;
 input double          InpBreakEvenTriggerUSD = 0.50;
 input double          InpBreakEvenLockUSD = 0.10;    // Approximate profit to lock above/below entry
 input bool            InpUseFastDirectionFallback = false;
-input bool            InpUseCandleDirectionEntries = true;
-input bool            InpCandleDirectionOverridesBias = true;
+input bool            InpUseCandleDirectionEntries = false;
+input bool            InpCandleDirectionOverridesBias = false;
 input int             InpCandleDirectionBufferPoints = 10;
 input bool            InpUseRetracementEntries = false;
+input bool            InpUseConfirmedTrendPullback = true;
+input double          InpImpulseATRMultiple = 0.50;
+input double          InpRejectionWickBodyRatio = 0.50;
 input int             InpRetracementBufferPoints = 10;
 input bool            InpExitOnLosingCandleFlip = false;
-input bool            InpExitOnCandleDirectionFlip = true;
-input bool            InpExitOnRetracementFailure = false;
+input bool            InpExitOnCandleDirectionFlip = false;
+input bool            InpExitOnRetracementFailure = true;
 input bool            InpShowStatusPanel = true;
 input bool            InpBypassVolatilityFilter = false;
 input int             InpSwingLeftBars = 3;
@@ -717,8 +720,8 @@ void EvaluateEntry(const bool intrabar=false)
    if(count<MathMax(InpATRPeriod+10,80)) { SetStatus("Waiting — insufficient price history"); return; }
    int signalShift=intrabar ? 0 : 1;
    int priorShift=signalShift+1;
-   double atr,entryEma,previousEntryEma,htfFast,htfSlow;
-   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(entryEmaHandle,priorShift,previousEntryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
+   double atr,priorAtr,entryEma,previousEntryEma,htfFast,htfSlow;
+   if(!BufferValue(atrHandle,signalShift,atr) || !BufferValue(atrHandle,priorShift,priorAtr) || !BufferValue(entryEmaHandle,signalShift,entryEma) || !BufferValue(entryEmaHandle,priorShift,previousEntryEma) || !BufferValue(htfFastHandle,1,htfFast) || !BufferValue(htfSlowHandle,1,htfSlow)) { SetStatus("Waiting — indicator data loading"); return; }
    double htfClose=iClose(_Symbol,InpTrendTimeframe,1);
    if(htfClose<=0.0) { SetStatus("Waiting — H1 data loading"); return; }
    double relativeAtr=atr/rates[signalShift].close;
@@ -756,6 +759,7 @@ void EvaluateEntry(const bool intrabar=false)
    }
    bool usedRetracement=false;
    bool usedCandleDirection=false;
+   bool usedConfirmedPullback=false;
    MqlTick liveTick;
    if(!SymbolInfoTick(_Symbol,liveTick)) { SetStatus("Waiting — no current broker quote"); return; }
    double retracementBuffer=InpRetracementBufferPoints*_Point;
@@ -778,15 +782,30 @@ void EvaluateEntry(const bool intrabar=false)
       amdShort=false;
       usedRetracement=true;
    }
+   else if(!intrabar && InpUseConfirmedTrendPullback)
+   {
+      double impulseBody=MathAbs(rates[priorShift].close-rates[priorShift].open);
+      double signalBody=MathAbs(rates[signalShift].close-rates[signalShift].open);
+      double lowerWick=MathMin(rates[signalShift].open,rates[signalShift].close)-rates[signalShift].low;
+      double upperWick=rates[signalShift].high-MathMax(rates[signalShift].open,rates[signalShift].close);
+      bool bullishImpulse=rates[priorShift].close>rates[priorShift].open && impulseBody>=priorAtr*InpImpulseATRMultiple;
+      bool bearishImpulse=rates[priorShift].close<rates[priorShift].open && impulseBody>=priorAtr*InpImpulseATRMultiple;
+      bool bullishRejection=rates[signalShift].low<=entryEma && rates[signalShift].close>entryEma && rates[signalShift].close>rates[signalShift].open && lowerWick>=signalBody*InpRejectionWickBodyRatio;
+      bool bearishRejection=rates[signalShift].high>=entryEma && rates[signalShift].close<entryEma && rates[signalShift].close<rates[signalShift].open && upperWick>=signalBody*InpRejectionWickBodyRatio;
+      longSignal=InpEnableLongs && trendLong && bullishImpulse && bullishRejection;
+      shortSignal=InpEnableShorts && trendShort && bearishImpulse && bearishRejection;
+      amdShort=false;
+      usedConfirmedPullback=true;
+   }
    if(!longSignal && !amdShort && !shortSignal)
    {
-      SetStatus(intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias ? "Waiting — candle movement is below direction buffer" : (intrabar && InpUseRetracementEntries ? "Waiting — no valid retracement" : "Waiting — no validated AMD structure"));
+      SetStatus(!intrabar && InpUseConfirmedTrendPullback ? "Waiting — no confirmed trend pullback" : (intrabar && InpUseCandleDirectionEntries && InpCandleDirectionOverridesBias ? "Waiting — candle movement is below direction buffer" : (intrabar && InpUseRetracementEntries ? "Waiting — no valid retracement" : "Waiting — no validated AMD structure")));
       return;
    }
 
    bool isBuy=longSignal;
    double entry=isBuy ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double stop=isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high);
+   double stop=usedConfirmedPullback ? (isBuy ? rates[signalShift].low : rates[signalShift].high) : (isBuy ? MathMin(rates[signalShift].low,swingLow>0.0 ? swingLow : rates[signalShift].low) : MathMax(rates[signalShift].high,swingHigh>0.0 ? swingHigh : rates[signalShift].high));
    stop=isBuy ? MathMin(stop,entry-atr*InpMinRiskATR) : MathMax(stop,entry+atr*InpMinRiskATR);
    double risk=MathAbs(entry-stop);
    if(risk<=_Point) { SetStatus("Blocked — invalid stop distance"); return; }
@@ -818,7 +837,7 @@ void EvaluateEntry(const bool intrabar=false)
          tp1Done=false;
          tp2Done=false;
          Print("AMD Scalping EA opened ",isBuy ? "BUY" : "SELL"," ",DoubleToString(volume,VolumeDigits()));
-         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedCandleDirection ? " — candle movement" : (usedRetracement ? " — EMA retracement" : " — validated AMD structure")));
+         SetStatus("OPENED "+(isBuy ? "BUY" : "SELL")+" "+DoubleToString(volume,VolumeDigits())+" lots"+(usedConfirmedPullback ? " — confirmed trend pullback" : (usedCandleDirection ? " — candle movement" : (usedRetracement ? " — EMA retracement" : " — validated AMD structure"))));
       }
       else SetStatus("Broker rejected order — see Experts tab");
    }
