@@ -23,6 +23,13 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
+## Binance candle analysis (dry-run)
+
+The repository also includes a separate public-Binance Spot candle analyzer. It is
+dry-run only and does not accept exchange credentials or place orders. See
+[the Binance dry-run guide](docs/BINANCE_DRY_RUN.md) to analyze `BTCUSDT` on 1m/5m
+with the tested trend-pullback logic.
+
 ## Included endpoints
 
 - `GET /api/v1/assets`
