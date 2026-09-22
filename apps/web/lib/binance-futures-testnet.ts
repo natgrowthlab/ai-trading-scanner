@@ -2,76 +2,23 @@ import { createHmac } from "node:crypto";
 
 const TESTNET_BASE_URL = "https://demo-fapi.binance.com";
 const TESTNET_FALLBACK_URL = "https://testnet.binancefuture.com";
+type Credentials = { apiKey: string | undefined; apiSecret: string | undefined; baseUrl: string };
+type BinanceError = { code?: unknown };
+type AccountResponse = { totalWalletBalance?: unknown; availableBalance?: unknown; totalUnrealizedProfit?: unknown; totalMarginBalance?: unknown; canTrade?: unknown; positions?: Array<Record<string, unknown>> };
+type OrdersResponse = Array<Record<string, unknown>>;
 
-export type TestnetConnectionStatus = {
-  mode: "TESTNET";
-  configured: boolean;
-  authenticated: boolean;
-  checkedAt: string;
-  message: string;
-};
+export type TestnetConnectionStatus = { mode: "TESTNET"; configured: boolean; authenticated: boolean; checkedAt: string; message: string };
+export type TestnetAccountSnapshot = { mode: "TESTNET"; checkedAt: string; account: { totalWalletBalance: string; availableBalance: string; totalUnrealizedProfit: string; totalMarginBalance: string; canTrade: boolean }; positions: Array<{ symbol: string; positionSide: string; positionAmt: string; entryPrice: string; markPrice: string; unrealizedProfit: string; leverage: string; marginType: string }>; orders: Array<{ symbol: string; side: string; positionSide: string; type: string; quantity: string; price: string; stopPrice: string; status: string; time: number }> };
 
-function credentials() {
-  const apiKey = process.env.BINANCE_FUTURES_API_KEY;
-  const apiSecret = process.env.BINANCE_FUTURES_API_SECRET;
-  const baseUrl = (process.env.BINANCE_FUTURES_BASE_URL ?? TESTNET_BASE_URL).trim().replace(/\/$/, "");
-  if (![TESTNET_BASE_URL, TESTNET_FALLBACK_URL].includes(baseUrl)) throw new Error("Only Binance Futures Testnet is allowed");
-  return { apiKey, apiSecret, baseUrl };
-}
+function credentials(): Credentials { const apiKey = process.env.BINANCE_FUTURES_API_KEY; const apiSecret = process.env.BINANCE_FUTURES_API_SECRET; const baseUrl = (process.env.BINANCE_FUTURES_BASE_URL ?? TESTNET_BASE_URL).trim().replace(/\/$/, ""); if (![TESTNET_BASE_URL, TESTNET_FALLBACK_URL].includes(baseUrl)) throw new Error("Only Binance Futures Testnet is allowed"); return { apiKey, apiSecret, baseUrl }; }
+function endpoints(config: Credentials) { return [config.baseUrl, ...[TESTNET_BASE_URL, TESTNET_FALLBACK_URL].filter((endpoint) => endpoint !== config.baseUrl)]; }
+function text(value: unknown) { return typeof value === "string" || typeof value === "number" ? String(value) : "0"; }
+function apiFailure(error: unknown) { const code = typeof (error as BinanceError)?.code === "number" ? (error as BinanceError).code : null; if (code === -2015 || code === -2014) return "API Key is invalid for Futures Testnet, restricted by IP, or missing Futures permission."; if (code === -1022) return "The API Secret does not match this Testnet API Key."; if (code === -1021) return "Timestamp was rejected despite Testnet time synchronization. Retry shortly."; return `Binance rejected the Testnet request${code !== null ? ` (code ${code})` : ""}.`; }
 
-/**
- * Verifies server-only Testnet credentials with a signed USER_DATA request.
- * This module deliberately has no function that creates, cancels, or changes an order.
- */
-export async function verifyTestnetCredentials(): Promise<TestnetConnectionStatus> {
-  const checkedAt = new Date().toISOString();
-  let config: ReturnType<typeof credentials>;
-  try {
-    config = credentials();
-  } catch {
-    return { mode: "TESTNET", configured: false, authenticated: false, checkedAt, message: "Testnet base URL is not permitted." };
-  }
-  if (!config.apiKey || !config.apiSecret) {
-    return { mode: "TESTNET", configured: false, authenticated: false, checkedAt, message: "Add the Testnet API key and secret in server environment variables." };
-  }
+async function signedGet<T>(baseUrl: string, apiKey: string, apiSecret: string, path: string): Promise<T> { const timeResponse = await fetch(`${baseUrl}/fapi/v1/time`, { cache: "no-store", signal: AbortSignal.timeout(8_000) }); if (!timeResponse.ok) throw new Error("Testnet time service is unavailable."); const time = await timeResponse.json() as { serverTime?: unknown }; if (typeof time.serverTime !== "number") throw new Error("Testnet returned an invalid time response."); const parameters = new URLSearchParams({ timestamp: time.serverTime.toString(), recvWindow: "5000" }); const signature = createHmac("sha256", apiSecret).update(parameters.toString()).digest("hex"); const response = await fetch(`${baseUrl}${path}?${parameters}&signature=${signature}`, { headers: { "X-MBX-APIKEY": apiKey }, cache: "no-store", signal: AbortSignal.timeout(8_000) }); if (!response.ok) throw await response.json().catch(() => ({})); return response.json() as Promise<T>; }
+async function requestFromTestnet<T>(config: Credentials, path: string): Promise<T> { if (!config.apiKey || !config.apiSecret) throw new Error("Testnet credentials are not configured."); let lastError: unknown; for (const endpoint of endpoints(config)) { try { return await signedGet<T>(endpoint, config.apiKey, config.apiSecret, path); } catch (error) { lastError = error; } } throw lastError ?? new Error("Unable to reach Binance Futures Testnet."); }
 
-  const endpoints = [config.baseUrl, ...[TESTNET_BASE_URL, TESTNET_FALLBACK_URL].filter((endpoint) => endpoint !== config.baseUrl)];
-  let lastFailure: TestnetConnectionStatus | null = null;
-  for (const endpoint of endpoints) {
-    const result = await verifyAtEndpoint(endpoint, config.apiKey, config.apiSecret, checkedAt);
-    if (result.authenticated) return result;
-    lastFailure = result;
-  }
-  return lastFailure ?? { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Unable to reach Binance Futures Testnet." };
-}
+/** This module is Testnet read-only. It has no create, cancel, or modify order function. */
+export async function verifyTestnetCredentials(): Promise<TestnetConnectionStatus> { const checkedAt = new Date().toISOString(); let config: Credentials; try { config = credentials(); } catch { return { mode: "TESTNET", configured: false, authenticated: false, checkedAt, message: "Testnet base URL is not permitted." }; } if (!config.apiKey || !config.apiSecret) return { mode: "TESTNET", configured: false, authenticated: false, checkedAt, message: "Add the Testnet API key and secret in server environment variables." }; try { await requestFromTestnet<AccountResponse>(config, "/fapi/v2/account"); return { mode: "TESTNET", configured: true, authenticated: true, checkedAt, message: "Binance Futures Testnet connection verified." }; } catch (error) { const message = error instanceof Error && !("code" in error) ? error.message : apiFailure(error); return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message }; } }
 
-async function verifyAtEndpoint(baseUrl: string, apiKey: string, apiSecret: string, checkedAt: string): Promise<TestnetConnectionStatus> {
-  try {
-    const timeResponse = await fetch(`${baseUrl}/fapi/v1/time`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
-    if (!timeResponse.ok) return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Binance Futures Testnet time service is unavailable." };
-    const time = await timeResponse.json() as { serverTime?: unknown };
-    if (typeof time.serverTime !== "number") return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Binance Futures Testnet returned an invalid time response." };
-    const parameters = new URLSearchParams({ timestamp: time.serverTime.toString(), recvWindow: "5000" });
-    const signature = createHmac("sha256", apiSecret).update(parameters.toString()).digest("hex");
-    const response = await fetch(`${baseUrl}/fapi/v2/account?${parameters}&signature=${signature}`, {
-      headers: { "X-MBX-APIKEY": apiKey },
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({})) as { code?: unknown };
-      const code = typeof error.code === "number" ? error.code : null;
-      const message = code === -2015 || code === -2014
-        ? "API Key is invalid for Futures Testnet, restricted by IP, or missing Futures permission."
-        : code === -1022
-          ? "The API Secret does not match this Testnet API Key."
-          : code === -1021
-            ? "Timestamp was rejected despite Testnet time synchronization. Retry shortly."
-            : `Binance rejected the Testnet request${code !== null ? ` (code ${code})` : ""}.`;
-      return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message };
-    }
-    return { mode: "TESTNET", configured: true, authenticated: true, checkedAt, message: "Binance Futures Testnet connection verified." };
-  } catch {
-    return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Unable to reach Binance Futures Testnet." };
-  }
-}
+export async function getTestnetAccountSnapshot(): Promise<TestnetAccountSnapshot> { const config = credentials(); const [account, orders] = await Promise.all([requestFromTestnet<AccountResponse>(config, "/fapi/v2/account"), requestFromTestnet<OrdersResponse>(config, "/fapi/v1/openOrders")]); return { mode: "TESTNET", checkedAt: new Date().toISOString(), account: { totalWalletBalance: text(account.totalWalletBalance), availableBalance: text(account.availableBalance), totalUnrealizedProfit: text(account.totalUnrealizedProfit), totalMarginBalance: text(account.totalMarginBalance), canTrade: account.canTrade === true }, positions: (account.positions ?? []).filter((position) => Number(position.positionAmt ?? 0) !== 0).map((position) => ({ symbol: text(position.symbol), positionSide: text(position.positionSide), positionAmt: text(position.positionAmt), entryPrice: text(position.entryPrice), markPrice: text(position.markPrice), unrealizedProfit: text(position.unRealizedProfit), leverage: text(position.leverage), marginType: text(position.marginType) })), orders: orders.map((order) => ({ symbol: text(order.symbol), side: text(order.side), positionSide: text(order.positionSide), type: text(order.type), quantity: text(order.origQty), price: text(order.price), stopPrice: text(order.stopPrice), status: text(order.status), time: typeof order.time === "number" ? order.time : 0 })) }; }

@@ -38,11 +38,15 @@ an order, add these **sensitive, Production** variables in Vercel:
 BINANCE_FUTURES_BASE_URL=https://demo-fapi.binance.com
 BINANCE_FUTURES_API_KEY=your_testnet_key
 BINANCE_FUTURES_API_SECRET=your_testnet_secret
+BINANCE_DASHBOARD_ACCESS_TOKEN=your_separate_long_dashboard_token
 ```
 
-The dashboard calls a signed Testnet account request server-side and reports only
-whether authentication succeeded. It never returns the key, secret, balance,
-positions, or an order endpoint.
+The dashboard calls signed Testnet account requests server-side. To load Testnet
+balance, PnL, open positions and open orders, add a separate long random
+`BINANCE_DASHBOARD_ACCESS_TOKEN` and enter that value in the dashboard. Do not use
+the Binance API Secret as that token. The account route is read-only and never
+returns either Binance credential; it contains no order creation, cancellation, or
+modification endpoint.
 
 The dashboard uses the Binance USDT-M Futures market endpoints for ticker, order-book and
 kline data. Their public endpoint has request-weight limits, so do not shorten the
