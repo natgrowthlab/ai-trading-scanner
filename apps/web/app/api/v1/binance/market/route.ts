@@ -10,6 +10,6 @@ export async function GET(request: NextRequest) {
     const snapshot = await loadBinanceMarket(symbol, interval);
     return NextResponse.json(snapshot, { headers: { "Cache-Control": "public, s-maxage=5, stale-while-revalidate=25" } });
   } catch {
-    return NextResponse.json({ detail: "Live Binance Spot data is temporarily unavailable. Try again shortly." }, { status: 502 });
+    return NextResponse.json({ detail: "Live Binance Futures data is temporarily unavailable. Try again shortly." }, { status: 502 });
   }
 }

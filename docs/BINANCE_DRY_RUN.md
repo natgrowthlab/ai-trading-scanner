@@ -1,7 +1,7 @@
-# Binance Spot dry-run bot
+# Binance USDT-M Futures dry-run bot
 
-This module analyzes public Binance Spot candles for `BTCUSDT` (or another Spot
-symbol) with the same closed-candle trend-pullback logic used by the project. It is
+This module analyzes public Binance USDT-M perpetual candles for `BTCUSDT` (or another
+supported perpetual contract) with the same closed-candle trend-pullback logic used by the project. It is
 intentionally **dry-run only**: it has no API-key support and cannot send an order.
 Every candidate is first evaluated locally so the setup can be tested without placing
 capital at risk.
@@ -24,7 +24,7 @@ not meet the strategy rules, not that connectivity failed.
 - Fast-profit, protective stop, and break-even state are simulated and auditable.
 - The module does not promise returns and is not investment advice.
 - Do not use a Binance API key with withdrawal permissions. Add a separate Testnet
-  order adapter only after backtesting and paper results are acceptable.
+  Testnet order adapter only after backtesting and paper results are acceptable.
 
 ## Test
 

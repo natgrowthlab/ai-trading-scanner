@@ -1,12 +1,10 @@
 import Link from "next/link";
 
 const links = [
-  ["/dashboard", "Dashboard"],
-  ["/scanner", "Scanner"],
-  ["/binance", "Binance"],
-  ["/polymarket", "Polymarket"],
+  ["/dashboard", "Bot"],
+  ["/binance", "Futures"],
+  ["/scanner", "Research"],
   ["/risk", "Risk"],
-  ["/signals", "Signals"],
 ];
 
 export function Navigation() {

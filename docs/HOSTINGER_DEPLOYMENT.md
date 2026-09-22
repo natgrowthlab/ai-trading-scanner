@@ -14,7 +14,7 @@ Instala Docker Engine y Compose en el VPS. Clona el repositorio y prepara la con
     cd ai-trading-scanner
     cp .env.example .env
 
-Antes de iniciar, cambia POSTGRES_PASSWORD y DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY y TRADINGVIEW_WEBHOOK_SECRET en .env por valores largos, únicos y secretos. No publiques el archivo .env.
+Antes de iniciar, cambia POSTGRES_PASSWORD y DATABASE_URL, JWT_SECRET y ENCRYPTION_KEY en .env por valores largos, únicos y secretos. No publiques el archivo .env.
 
 Inicia la aplicación:
 

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from app.services.market_data import CandleData
 
-SUPPORTED_MARKETS = ("NQ", "ES", "YM", "RTY", "GC")
+SUPPORTED_MARKETS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT")
 SUPPORTED_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1D", "1W"}
 
 
@@ -34,11 +34,11 @@ class IntelligenceConfig:
 
 
 INSTRUMENTS = {
-    "NQ": {"tick_size": 0.25, "tick_value": 5.0, "max_contracts": 10},
-    "ES": {"tick_size": 0.25, "tick_value": 12.5, "max_contracts": 10},
-    "YM": {"tick_size": 1.0, "tick_value": 5.0, "max_contracts": 10},
-    "RTY": {"tick_size": 0.1, "tick_value": 5.0, "max_contracts": 10},
-    "GC": {"tick_size": 0.1, "tick_value": 10.0, "max_contracts": 10},
+    "BTCUSDT": {"tick_size": 0.1, "tick_value": 0.1, "max_contracts": 1},
+    "ETHUSDT": {"tick_size": 0.01, "tick_value": 0.01, "max_contracts": 10},
+    "SOLUSDT": {"tick_size": 0.001, "tick_value": 0.001, "max_contracts": 100},
+    "BNBUSDT": {"tick_size": 0.01, "tick_value": 0.01, "max_contracts": 10},
+    "XRPUSDT": {"tick_size": 0.0001, "tick_value": 0.0001, "max_contracts": 1000},
 }
 
 

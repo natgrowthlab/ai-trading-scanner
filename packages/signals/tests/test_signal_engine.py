@@ -12,7 +12,7 @@ from signal_engine import SignalDirection, SignalState, TradePlan, build_signal
 def test_signal_enforces_lifecycle_and_expiry():
     created = datetime(2025, 1, 1, tzinfo=UTC)
     signal = build_signal(
-        "XAUUSD",
+        "BTCUSDT",
         "5m",
         SignalDirection.LONG,
         75,
@@ -32,7 +32,7 @@ def test_signal_rejects_invalid_price_plan():
     created = datetime(2025, 1, 1, tzinfo=UTC)
     with pytest.raises(ValueError):
         build_signal(
-            "XAUUSD",
+            "BTCUSDT",
             "5m",
             SignalDirection.LONG,
             75,

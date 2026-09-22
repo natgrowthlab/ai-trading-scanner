@@ -10,7 +10,7 @@ from paper_engine import PaperAccount, PositionStatus, Side
 
 def test_paper_account_tracks_realized_profit_without_broker():
     account = PaperAccount(Decimal("10000"))
-    opened = account.open_position("p1", "XAUUSD", Side.LONG, Decimal("2"), Decimal("2000"))
+    opened = account.open_position("p1", "BTCUSDT", Side.LONG, Decimal("0.02"), Decimal("60000"))
     closed = opened.close_position("p1", Decimal("2010"))
     assert closed.balance == Decimal("10020")
     assert closed.history[0].status is PositionStatus.CLOSED

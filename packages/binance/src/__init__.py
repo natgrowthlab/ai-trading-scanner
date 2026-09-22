@@ -1,12 +1,12 @@
-"""Binance Spot candle analysis and dry-run trading components."""
+"""Binance USDT-M Futures candle analysis and dry-run trading components."""
 
-from .bot import BinanceScalpingBot, BotConfig, BotEvent, BotState
-from .client import BinancePublicClient
+from .bot import BinanceFuturesScalpingBot, BotConfig, BotEvent, BotState
+from .client import BinanceFuturesPublicClient
 from .strategy import Candle, Direction, PullbackConfig, PullbackStrategy, StrategyDecision
 
 __all__ = [
-    "BinancePublicClient",
-    "BinanceScalpingBot",
+    "BinanceFuturesPublicClient",
+    "BinanceFuturesScalpingBot",
     "BotConfig",
     "BotEvent",
     "BotState",

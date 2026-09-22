@@ -8,14 +8,11 @@ from app.models.market import Asset, AssetClass
 def seed_assets() -> None:
     Base.metadata.create_all(bind=engine)
     assets = [
-        ("XAUUSD", "Gold / US Dollar", AssetClass.METAL),
-        ("NAS100", "Nasdaq 100", AssetClass.INDEX),
-        ("BTCUSDT", "Bitcoin / Tether", AssetClass.CRYPTO),
-        ("NQ", "Nasdaq-100 E-mini Futures", AssetClass.INDEX),
-        ("ES", "S&P 500 E-mini Futures", AssetClass.INDEX),
-        ("YM", "Dow E-mini Futures", AssetClass.INDEX),
-        ("RTY", "Russell 2000 E-mini Futures", AssetClass.INDEX),
-        ("GC", "Gold Futures", AssetClass.METAL),
+        ("BTCUSDT", "Bitcoin / Tether perpetual", AssetClass.CRYPTO),
+        ("ETHUSDT", "Ether / Tether perpetual", AssetClass.CRYPTO),
+        ("SOLUSDT", "Solana / Tether perpetual", AssetClass.CRYPTO),
+        ("BNBUSDT", "BNB / Tether perpetual", AssetClass.CRYPTO),
+        ("XRPUSDT", "XRP / Tether perpetual", AssetClass.CRYPTO),
     ]
     with SessionLocal() as db:
         for symbol, display_name, asset_class in assets:

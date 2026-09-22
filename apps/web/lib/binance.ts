@@ -15,7 +15,7 @@ type Ticker = {
 type Depth = { bids: [string, string][]; asks: [string, string][] };
 
 export type BinanceMarketSnapshot = {
-  provider: "BINANCE_SPOT";
+  provider: "BINANCE_USDTM_FUTURES";
   symbol: BinanceSymbol;
   interval: BinanceInterval;
   asOf: string;
@@ -29,9 +29,8 @@ export type BinanceMarketSnapshot = {
 };
 
 const DEFAULT_BINANCE_ENDPOINTS = [
-  "https://api.binance.com",
-  "https://api1.binance.com",
-  "https://api.binance.us",
+  "https://fapi.binance.com",
+  "https://demo-fapi.binance.com",
 ];
 
 export function parseSymbol(value: string | null): BinanceSymbol {
@@ -61,9 +60,9 @@ export async function loadBinanceMarket(symbol: BinanceSymbol, interval: Binance
 async function loadFromEndpoint(endpoint: string, symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
   const query = new URLSearchParams({ symbol });
   const [tickerResponse, depthResponse, klinesResponse] = await Promise.all([
-    fetch(`${endpoint}/api/v3/ticker/24hr?${query}`, { next: { revalidate: 5 } }),
-    fetch(`${endpoint}/api/v3/depth?${new URLSearchParams({ symbol, limit: "5" })}`, { next: { revalidate: 5 } }),
-    fetch(`${endpoint}/api/v3/klines?${new URLSearchParams({ symbol, interval, limit: "80" })}`, { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/fapi/v1/ticker/24hr?${query}`, { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/fapi/v1/depth?${new URLSearchParams({ symbol, limit: "5" })}`, { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/fapi/v1/klines?${new URLSearchParams({ symbol, interval, limit: "80" })}`, { next: { revalidate: 5 } }),
   ]);
   if (!tickerResponse.ok || !depthResponse.ok || !klinesResponse.ok) {
     throw new Error("Binance market data is temporarily unavailable");
@@ -79,7 +78,7 @@ async function loadFromEndpoint(endpoint: string, symbol: BinanceSymbol, interva
   const bidQuantity = depth.bids.reduce((total, [, quantity]) => total + Number(quantity), 0);
   const askQuantity = depth.asks.reduce((total, [, quantity]) => total + Number(quantity), 0);
   return {
-    provider: "BINANCE_SPOT",
+    provider: "BINANCE_USDTM_FUTURES",
     symbol,
     interval,
     asOf: new Date().toISOString(),

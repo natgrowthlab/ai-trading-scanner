@@ -1,4 +1,4 @@
-"""State machine for safe Binance Spot dry-run execution."""
+"""State machine for safe Binance USDT-M Futures dry-run execution."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class _Position:
         return movement * self.quantity if self.direction is Direction.LONG else -movement * self.quantity
 
 
-class BinanceScalpingBot:
+class BinanceFuturesScalpingBot:
     """One-position dry-run manager.
 
     The bot never sends orders.  It turns strategy decisions and subsequent prices

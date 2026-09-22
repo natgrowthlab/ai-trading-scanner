@@ -6,18 +6,18 @@
  * uses deterministic MOCK candles until a licensed market-data provider is
  * connected; all responses state that fact explicitly.
  */
-export const SUPPORTED_MARKETS = ["NQ", "ES", "YM", "RTY", "GC"] as const;
+export const SUPPORTED_MARKETS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"] as const;
 export const SUPPORTED_TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1D", "1W"] as const;
 type Market = typeof SUPPORTED_MARKETS[number];
 type Timeframe = typeof SUPPORTED_TIMEFRAMES[number];
 type Candle = { timestamp: string; open: number; high: number; low: number; close: number };
 
 const instruments: Record<Market, { base: number; tickSize: number; tickValue: number; maxContracts: number }> = {
-  NQ: { base: 22000, tickSize: .25, tickValue: 5, maxContracts: 10 },
-  ES: { base: 6100, tickSize: .25, tickValue: 12.5, maxContracts: 10 },
-  YM: { base: 43000, tickSize: 1, tickValue: 5, maxContracts: 10 },
-  RTY: { base: 2250, tickSize: .1, tickValue: 5, maxContracts: 10 },
-  GC: { base: 4400, tickSize: .1, tickValue: 10, maxContracts: 10 },
+  BTCUSDT: { base: 86000, tickSize: .1, tickValue: .1, maxContracts: 1 },
+  ETHUSDT: { base: 3000, tickSize: .01, tickValue: .01, maxContracts: 10 },
+  SOLUSDT: { base: 140, tickSize: .001, tickValue: .001, maxContracts: 100 },
+  BNBUSDT: { base: 600, tickSize: .01, tickValue: .01, maxContracts: 10 },
+  XRPUSDT: { base: 2, tickSize: .0001, tickValue: .0001, maxContracts: 1000 },
 };
 
 const minutes: Record<Timeframe, number> = { "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1D": 1440, "1W": 10080 };

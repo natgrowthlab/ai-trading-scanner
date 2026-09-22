@@ -1,4 +1,4 @@
-"""Public Binance Spot candle client. No API key is used or accepted here."""
+"""Public Binance USDT-M Futures candle client. No API key is used or accepted here."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from urllib.request import urlopen
 from .strategy import Candle
 
 
-class BinancePublicClient:
-    base_url = "https://api.binance.com"
+class BinanceFuturesPublicClient:
+    base_url = "https://fapi.binance.com"
 
     def get_closed_klines(self, symbol: str, interval: str, limit: int = 250) -> list[Candle]:
         if not symbol.isalnum() or symbol.upper() != symbol:
@@ -21,7 +21,7 @@ class BinancePublicClient:
             raise ValueError("limit must be between 2 and 1000")
         query = urlencode({"symbol": symbol, "interval": interval, "limit": limit})
         try:
-            with urlopen(f"{self.base_url}/api/v3/klines?{query}", timeout=10) as response:  # noqa: S310 public fixed host
+            with urlopen(f"{self.base_url}/fapi/v1/klines?{query}", timeout=10) as response:  # noqa: S310 public fixed host
                 payload = json.load(response)
         except HTTPError as error:
             raise RuntimeError(f"Binance rejected the candle request ({error.code})") from error

@@ -1,4 +1,4 @@
-"""Run one public Binance analysis cycle without sending an order.
+"""Run one Binance USDT-M Futures analysis cycle without sending an order.
 
 Usage: PYTHONPATH=packages/binance python -m src.run_dry_run
 """
@@ -8,15 +8,15 @@ from __future__ import annotations
 import json
 import os
 
-from .bot import BinanceScalpingBot
-from .client import BinancePublicClient
+from .bot import BinanceFuturesScalpingBot
+from .client import BinanceFuturesPublicClient
 
 
 def main() -> None:
     symbol = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
     interval = os.getenv("BINANCE_INTERVAL", "1m")
-    client = BinancePublicClient()
-    bot = BinanceScalpingBot()
+    client = BinanceFuturesPublicClient()
+    bot = BinanceFuturesScalpingBot()
     try:
         entry = client.get_closed_klines(symbol, interval)
         trend = client.get_closed_klines(symbol, "15m")

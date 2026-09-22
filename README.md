@@ -1,8 +1,8 @@
 # AI Trading Scanner
 
-Private, analytical market-scanning platform. The first verified milestone includes service infrastructure, canonical candle data, pluggable market-data contracts, assets/candles API, and deterministic market-structure analysis.
+Private Binance USDT-M Futures research and dry-run bot platform. It includes live public futures market data, candle analysis, and testable risk logic.
 
-It is an educational and analytical tool. It does not provide investment advice, execute orders, or make performance guarantees.
+It is an educational and analytical tool. It does not provide investment advice, execute live orders, or make performance guarantees.
 
 ## Quick start
 
@@ -23,9 +23,9 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-## Binance candle analysis (dry-run)
+## Binance Futures candle analysis (dry-run)
 
-The repository also includes a separate public-Binance Spot candle analyzer. It is
+The repository also includes a separate public Binance USDT-M Futures candle analyzer. It is
 dry-run only and does not accept exchange credentials or place orders. See
 [the Binance dry-run guide](docs/BINANCE_DRY_RUN.md) to analyze `BTCUSDT` on 1m/5m
 with the tested trend-pullback logic.
@@ -33,17 +33,21 @@ with the tested trend-pullback logic.
 ## Included endpoints
 
 - `GET /api/v1/assets`
-- `GET /api/v1/candles?symbol=XAUUSD&timeframe=5m`
+- `GET /api/v1/candles?symbol=BTCUSDT&timeframe=5m`
 - `GET /health`
 - `GET /ready`
 
-## Market intelligence
+## Binance Futures bot
 
-The scanner adds deterministic futures analysis for NQ, ES, YM, RTY and GC:
+The platform focuses on Binance USDT-M perpetual contracts: BTCUSDT, ETHUSDT,
+SOLUSDT, BNBUSDT and XRPUSDT. The web dashboard reads live ticker, order-book and
+closed-candle data through a server-side route, while the Python bot remains
+dry-run/Testnet-first.
 
 - `GET /api/v1/scanner?timeframe=5m`
-- `GET /api/v1/markets/NQ?timeframe=5m`
-- `GET /api/v1/markets/NQ/liquidity?timeframe=5m`
+- `GET /api/v1/markets/BTCUSDT?timeframe=5m`
+- `GET /api/v1/markets/BTCUSDT/liquidity?timeframe=5m`
 - `POST /api/v1/prop-accounts/evaluate`
 
-The configured provider is currently deterministic mock data, always returned as `dataStatus: MOCK`. Configure and deploy a real provider adapter before using the scanner as a live data surface. No order execution is implemented.
+No live order execution is implemented. Validate strategy behavior in dry-run and
+Testnet before considering any exchange execution.

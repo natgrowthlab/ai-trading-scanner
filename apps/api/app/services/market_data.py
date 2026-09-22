@@ -66,7 +66,7 @@ class MockMarketDataProvider(MarketDataProvider):
             "1D": 1440,
         }[timeframe]
         start = datetime(2025, 1, 1, tzinfo=UTC)
-        base = Decimal("2000") if symbol == "XAUUSD" else Decimal("100")
+        base = Decimal("60000") if symbol == "BTCUSDT" else Decimal("3000")
         return [
             CandleData(
                 symbol=symbol,

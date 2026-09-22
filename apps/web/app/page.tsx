@@ -1,4 +1,4 @@
-const features = ["Canonical market data", "Market structure engine", "Deterministic testing"];
+const features = ["Binance USDT-M Futures data", "Closed-candle strategy analysis", "Dry-run and Testnet-first controls"];
 export default function Home() {
-  return <main><p className="eyebrow">PRIVATE ANALYTICS PLATFORM</p><h1>AI Market Scanner</h1><p className="lead">Phase 1 foundation is running. Signals are not generated at this stage.</p><section>{features.map((feature) => <article key={feature}>{feature}</article>)}</section><p className="disclaimer">Educational and analytical tool. Trading involves risk of loss.</p></main>;
+  return <main><p className="eyebrow">BINANCE FUTURES BOT</p><h1>Crypto futures, clearly controlled.</h1><p className="lead">A focused USDT-M Futures workspace for live market analysis and testable bot logic.</p><section>{features.map((feature) => <article key={feature}>{feature}</article>)}</section><p className="disclaimer">Educational and analytical tool. Crypto futures involve substantial risk of loss.</p></main>;
 }

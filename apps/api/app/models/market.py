@@ -9,8 +9,6 @@ from app.db.base import Base
 
 
 class AssetClass(StrEnum):
-    METAL = "METAL"
-    INDEX = "INDEX"
     CRYPTO = "CRYPTO"
 
 
