@@ -16,6 +16,7 @@ type Depth = { bids: [string, string][]; asks: [string, string][] };
 
 export type BinanceMarketSnapshot = {
   provider: "BINANCE_USDTM_FUTURES";
+  marketDataMode: "LIVE" | "TESTNET";
   symbol: BinanceSymbol;
   interval: BinanceInterval;
   asOf: string;
@@ -29,9 +30,9 @@ export type BinanceMarketSnapshot = {
 };
 
 const DEFAULT_BINANCE_ENDPOINTS = [
-  "https://fapi.binance.com",
-  "https://demo-fapi.binance.com",
-  "https://testnet.binancefuture.com",
+  { url: "https://fapi.binance.com", marketDataMode: "LIVE" as const },
+  { url: "https://demo-fapi.binance.com", marketDataMode: "TESTNET" as const },
+  { url: "https://testnet.binancefuture.com", marketDataMode: "TESTNET" as const },
 ];
 
 export function parseSymbol(value: string | null): BinanceSymbol {
@@ -46,10 +47,12 @@ export function parseInterval(value: string | null): BinanceInterval {
 
 export async function loadBinanceMarket(symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
   const configuredEndpoint = process.env.BINANCE_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
-  const endpoints = configuredEndpoint ? [configuredEndpoint, ...DEFAULT_BINANCE_ENDPOINTS.filter((endpoint) => endpoint !== configuredEndpoint)] : DEFAULT_BINANCE_ENDPOINTS;
+  const endpoints = configuredEndpoint
+    ? [{ url: configuredEndpoint, marketDataMode: "LIVE" as const }, ...DEFAULT_BINANCE_ENDPOINTS.filter((endpoint) => endpoint.url !== configuredEndpoint)]
+    : DEFAULT_BINANCE_ENDPOINTS;
   for (const endpoint of endpoints) {
     try {
-      return await loadFromEndpoint(endpoint, symbol, interval);
+      return await loadFromEndpoint(endpoint.url, endpoint.marketDataMode, symbol, interval);
     } catch {
       // Public exchange endpoints can be regionally unavailable from a serverless region.
       // A fallback still provides real Spot market data without client-side credentials.
@@ -58,7 +61,7 @@ export async function loadBinanceMarket(symbol: BinanceSymbol, interval: Binance
   throw new Error("Binance market data is temporarily unavailable");
 }
 
-async function loadFromEndpoint(endpoint: string, symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
+async function loadFromEndpoint(endpoint: string, marketDataMode: "LIVE" | "TESTNET", symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
   const query = new URLSearchParams({ symbol });
   const [tickerResponse, depthResponse, klinesResponse] = await Promise.all([
     fetch(`${endpoint}/fapi/v1/ticker/24hr?${query}`, { next: { revalidate: 5 } }),
@@ -80,6 +83,7 @@ async function loadFromEndpoint(endpoint: string, symbol: BinanceSymbol, interva
   const askQuantity = depth.asks.reduce((total, [, quantity]) => total + Number(quantity), 0);
   return {
     provider: "BINANCE_USDTM_FUTURES",
+    marketDataMode,
     symbol,
     interval,
     asOf: new Date().toISOString(),
