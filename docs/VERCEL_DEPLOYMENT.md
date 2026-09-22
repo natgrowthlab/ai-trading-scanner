@@ -14,6 +14,10 @@ Binance credential is needed for that page and no order endpoint is included.
 
 The handler caches public Binance responses for five seconds and serves a
 same-origin `/api/v1/binance/market` route, avoiding browser CORS exposure.
+It attempts Binance's global, `api1`, and US public endpoints in sequence because
+availability can differ by the serverless region. Set the optional server-only
+`BINANCE_PUBLIC_API_BASE_URL` in Vercel only if a specific compliant endpoint is
+required for your deployment.
 
 ## Secrets and real execution
 

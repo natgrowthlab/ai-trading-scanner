@@ -28,7 +28,11 @@ export type BinanceMarketSnapshot = {
   candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
 };
 
-const BINANCE_BASE_URL = "https://api.binance.com";
+const DEFAULT_BINANCE_ENDPOINTS = [
+  "https://api.binance.com",
+  "https://api1.binance.com",
+  "https://api.binance.us",
+];
 
 export function parseSymbol(value: string | null): BinanceSymbol {
   if (value && SUPPORTED_BINANCE_SYMBOLS.includes(value as BinanceSymbol)) return value as BinanceSymbol;
@@ -41,12 +45,25 @@ export function parseInterval(value: string | null): BinanceInterval {
 }
 
 export async function loadBinanceMarket(symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
-  const endpoint = (path: string) => `${BINANCE_BASE_URL}${path}`;
+  const configuredEndpoint = process.env.BINANCE_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  const endpoints = configuredEndpoint ? [configuredEndpoint, ...DEFAULT_BINANCE_ENDPOINTS.filter((endpoint) => endpoint !== configuredEndpoint)] : DEFAULT_BINANCE_ENDPOINTS;
+  for (const endpoint of endpoints) {
+    try {
+      return await loadFromEndpoint(endpoint, symbol, interval);
+    } catch {
+      // Public exchange endpoints can be regionally unavailable from a serverless region.
+      // A fallback still provides real Spot market data without client-side credentials.
+    }
+  }
+  throw new Error("Binance market data is temporarily unavailable");
+}
+
+async function loadFromEndpoint(endpoint: string, symbol: BinanceSymbol, interval: BinanceInterval): Promise<BinanceMarketSnapshot> {
   const query = new URLSearchParams({ symbol });
   const [tickerResponse, depthResponse, klinesResponse] = await Promise.all([
-    fetch(endpoint(`/api/v3/ticker/24hr?${query}`), { next: { revalidate: 5 } }),
-    fetch(endpoint(`/api/v3/depth?${new URLSearchParams({ symbol, limit: "5" })}`), { next: { revalidate: 5 } }),
-    fetch(endpoint(`/api/v3/klines?${new URLSearchParams({ symbol, interval, limit: "80" })}`), { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/api/v3/ticker/24hr?${query}`, { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/api/v3/depth?${new URLSearchParams({ symbol, limit: "5" })}`, { next: { revalidate: 5 } }),
+    fetch(`${endpoint}/api/v3/klines?${new URLSearchParams({ symbol, interval, limit: "80" })}`, { next: { revalidate: 5 } }),
   ]);
   if (!tickerResponse.ok || !depthResponse.ok || !klinesResponse.ok) {
     throw new Error("Binance market data is temporarily unavailable");
