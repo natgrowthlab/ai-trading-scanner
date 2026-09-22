@@ -31,6 +31,7 @@ export type BinanceMarketSnapshot = {
 const DEFAULT_BINANCE_ENDPOINTS = [
   "https://fapi.binance.com",
   "https://demo-fapi.binance.com",
+  "https://testnet.binancefuture.com",
 ];
 
 export function parseSymbol(value: string | null): BinanceSymbol {
