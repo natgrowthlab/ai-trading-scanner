@@ -29,6 +29,21 @@ will not trade. If a later Testnet execution service is added, configure its key
 server-only, sensitive Vercel environment variables and use keys with withdrawals
 disabled. Deploy environment-variable changes again before expecting them to apply.
 
+## Testnet credential verification
+
+To verify a Binance Futures Testnet key without exposing account details or placing
+an order, add these **sensitive, Production** variables in Vercel:
+
+```text
+BINANCE_FUTURES_BASE_URL=https://demo-fapi.binance.com
+BINANCE_FUTURES_API_KEY=your_testnet_key
+BINANCE_FUTURES_API_SECRET=your_testnet_secret
+```
+
+The dashboard calls a signed Testnet account request server-side and reports only
+whether authentication succeeded. It never returns the key, secret, balance,
+positions, or an order endpoint.
+
 The dashboard uses the Binance USDT-M Futures market endpoints for ticker, order-book and
 kline data. Their public endpoint has request-weight limits, so do not shorten the
 five-second refresh interval without implementing a rate-limit budget.
