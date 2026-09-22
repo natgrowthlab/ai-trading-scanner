@@ -13,7 +13,7 @@ export type TestnetConnectionStatus = {
 function credentials() {
   const apiKey = process.env.BINANCE_FUTURES_API_KEY;
   const apiSecret = process.env.BINANCE_FUTURES_API_SECRET;
-  const baseUrl = process.env.BINANCE_FUTURES_BASE_URL ?? TESTNET_BASE_URL;
+  const baseUrl = (process.env.BINANCE_FUTURES_BASE_URL ?? TESTNET_BASE_URL).trim().replace(/\/$/, "");
   if (baseUrl !== TESTNET_BASE_URL) throw new Error("Only Binance Futures Testnet is allowed");
   return { apiKey, apiSecret, baseUrl };
 }
@@ -34,16 +34,29 @@ export async function verifyTestnetCredentials(): Promise<TestnetConnectionStatu
     return { mode: "TESTNET", configured: false, authenticated: false, checkedAt, message: "Add the Testnet API key and secret in server environment variables." };
   }
 
-  const parameters = new URLSearchParams({ timestamp: Date.now().toString(), recvWindow: "5000" });
-  const signature = createHmac("sha256", config.apiSecret).update(parameters.toString()).digest("hex");
   try {
+    const timeResponse = await fetch(`${config.baseUrl}/fapi/v1/time`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    if (!timeResponse.ok) return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Binance Futures Testnet time service is unavailable." };
+    const time = await timeResponse.json() as { serverTime?: unknown };
+    if (typeof time.serverTime !== "number") return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Binance Futures Testnet returned an invalid time response." };
+    const parameters = new URLSearchParams({ timestamp: time.serverTime.toString(), recvWindow: "5000" });
+    const signature = createHmac("sha256", config.apiSecret).update(parameters.toString()).digest("hex");
     const response = await fetch(`${config.baseUrl}/fapi/v2/account?${parameters}&signature=${signature}`, {
       headers: { "X-MBX-APIKEY": config.apiKey },
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     });
     if (!response.ok) {
-      return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message: "Binance rejected the Testnet credentials or request." };
+      const error = await response.json().catch(() => ({})) as { code?: unknown };
+      const code = typeof error.code === "number" ? error.code : null;
+      const message = code === -2015 || code === -2014
+        ? "API Key is invalid for Futures Testnet, restricted by IP, or missing Futures permission."
+        : code === -1022
+          ? "The API Secret does not match this Testnet API Key."
+          : code === -1021
+            ? "Timestamp was rejected despite Testnet time synchronization. Retry shortly."
+            : `Binance rejected the Testnet request${code !== null ? ` (code ${code})` : ""}.`;
+      return { mode: "TESTNET", configured: true, authenticated: false, checkedAt, message };
     }
     return { mode: "TESTNET", configured: true, authenticated: true, checkedAt, message: "Binance Futures Testnet connection verified." };
   } catch {
